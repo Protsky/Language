@@ -30,7 +30,6 @@ const DEFAULTS = {
     voices: {},       // lingua -> voce scelta a mano fra quelle del dispositivo
     online: { ru: true },  // lingua -> voce online invece di quella del telefono
     direction: 'produce',   // 'produce' = dall'italiano alla lingua; 'understand' = il contrario
-    w: null,          // pesi FSRS tarati sui propri ripassi, se calcolati
     domains: [],
   },
   decks: {},
@@ -38,6 +37,16 @@ const DEFAULTS = {
 
 const EMPTY_DECK = {
   profile: { theta: null, se: null, cefr: null, at: null, history: [] },
+  /*
+   * I pesi FSRS tarati su QUESTO mazzo, o null per quelli di serie.
+   *
+   * Stanno nel mazzo e non nelle impostazioni perché non sono una preferenza:
+   * sono un modello adattato ai ripassi di una lingua. Difficoltà e stabilità
+   * del russo — alfabeto diverso, niente parole trasparenti — non dicono niente
+   * su quelle dello spagnolo. Fino al 29/08/2026 erano un'impostazione globale,
+   * quindi tarare una lingua ritarava tutte le altre.
+   */
+  w: null,
   cards: {},
   log: [],
   daily: { day: null, introduced: 0, reviewed: 0, xp: 0, cleared: false },
@@ -50,29 +59,108 @@ export function dayKey(ts = Date.now()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/*
+ * Lo stato letto una volta e tenuto in memoria.
+ *
+ * Ogni risposta passava per quattro `JSON.parse` dell'INTERO stato — scheduler,
+ * salvataggio della carta, registro, impostazioni — su un registro che arriva a
+ * quasi un megabyte. `localStorage` è sincrono: quel lavoro sta tutto sul filo
+ * dell'interfaccia, e su un telefono di qualche anno fa si vede.
+ *
+ * La copia in memoria è la verità finché questa scheda è l'unica a scrivere;
+ * se scrive un'altra scheda arriva l'evento `storage` e la copia si butta.
+ */
+let cache = null;
+
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('storage', (e) => { if (!e.key || e.key === KEY) cache = null; });
+}
+
 function read() {
+  if (cache) return cache;
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return structuredClone(DEFAULTS);
+    if (!raw) return (cache = structuredClone(DEFAULTS));
     const parsed = JSON.parse(raw);
-    return {
+    /*
+     * MIGRAZIONE 29/08/2026 — i pesi FSRS erano un'impostazione globale, tarata
+     * su un mazzo solo e applicata a tutti. Adesso stanno nel mazzo. Quelli
+     * vecchi si buttano invece di regalarli a una lingua a caso: non c'è modo
+     * di sapere su quale erano stati calcolati, e attribuirli sbagliando
+     * sarebbe peggio che rifare la taratura, che dura due decimi di secondo.
+     */
+    if (parsed.settings && parsed.settings.w) delete parsed.settings.w;
+    cache = {
       ...structuredClone(DEFAULTS),
       ...parsed,
       settings: { ...DEFAULTS.settings, ...(parsed.settings || {}) },
       decks: parsed.decks || {},
     };
+    return cache;
   } catch {
-    return structuredClone(DEFAULTS);
+    return (cache = structuredClone(DEFAULTS));
   }
 }
 
+/*
+ * Se una scrittura fallisce, l'app DEVE dirlo.
+ *
+ * Fino al 29/08/2026 qui c'era un catch vuoto con scritto «si continua senza
+ * salvare»: con lo spazio esaurito o in navigazione privata si poteva studiare
+ * per un'ora intera mentre non veniva registrato niente, e non se ne accorgeva
+ * nessuno fino al giorno dopo. Un'app che tiene mesi di storia dei ripassi non
+ * può perderli in silenzio: adesso l'errore resta segnato e le schermate lo
+ * mostrano.
+ */
+let writeError = null;
+
+export const storageError = () => writeError;
+export const clearStorageError = () => { writeError = null; };
+
 function write(state) {
+  cache = state;
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
-  } catch {
-    /* spazio esaurito o navigazione privata: si continua senza salvare */
+    writeError = null;
+  } catch (err) {
+    writeError = {
+      at: Date.now(),
+      quota: err && (err.name === 'QuotaExceededError' || err.code === 22 || err.code === 1014),
+      message: String((err && err.message) || err),
+    };
   }
   return state;
+}
+
+/**
+ * Chiede al browser di non sfrattare questi dati.
+ *
+ * Senza, `localStorage` è memoria «best effort»: Safari la cancella dopo
+ * settimane di inattività sul sito, e con lei se ne va tutta la storia dei
+ * ripassi — cioè l'unica cosa che questa app accumula. Va chiesto dopo un gesto
+ * dell'utente, quindi si chiama all'avvio e di nuovo quando si comincia a
+ * studiare: se il permesso c'è già, la seconda chiamata non costa niente.
+ */
+export async function requestPersistence() {
+  try {
+    if (!navigator.storage?.persist) return null;
+    if (await navigator.storage.persisted()) return true;
+    return await navigator.storage.persist();
+  } catch {
+    return null;
+  }
+}
+
+/** Quanto spazio si sta usando, per dirlo prima che finisca. */
+export async function storageUsage() {
+  try {
+    if (!navigator.storage?.estimate) return null;
+    const { usage, quota } = await navigator.storage.estimate();
+    if (!quota) return null;
+    return { usage, quota, ratio: usage / quota };
+  } catch {
+    return null;
+  }
 }
 
 /** Legge, lascia modificare, salva. Restituisce il valore ritornato da fn. */
@@ -83,9 +171,10 @@ export function update(fn) {
   return out;
 }
 
-export const getState = () => read();
+export const getState = () => structuredClone(read());
 
-export const getSettings = () => read().settings;
+/* Copia: chi legge le impostazioni non deve poter cambiare quelle di tutti. */
+export const getSettings = () => structuredClone(read().settings);
 
 export function setSetting(key, value) {
   return update((s) => {
@@ -112,6 +201,7 @@ function ensure(state, code) {
   deck.log = deck.log || [];
   deck.daily = deck.daily || structuredClone(EMPTY_DECK.daily);
   deck.streak = deck.streak || structuredClone(EMPTY_DECK.streak);
+  if (deck.w === undefined) deck.w = null;
   return deck;
 }
 
@@ -139,20 +229,33 @@ export function saveProfile(code, profile) {
   }, code);
 }
 
-/* ------------------------------- carte ------------------------------- */
+/** I pesi FSRS di questo mazzo: null = quelli di serie. */
+export function getW(code = read().lang) {
+  return code ? (read().decks[code]?.w ?? null) : null;
+}
 
-export function saveCard(card, code = read().lang) {
+export function setW(w, code = read().lang) {
   return withDeck((deck) => {
-    deck.cards[card.id] = card;
-    return card;
+    deck.w = w;
+    return w;
   }, code);
 }
 
-/** Registra la risposta e aggiorna conteggi giornalieri e serie. */
-export function logReview(entry, code = read().lang) {
+/* ------------------------------- carte ------------------------------- */
+
+/**
+ * Carta e registro nella STESSA scrittura.
+ *
+ * Erano due `update()` separati, cioè due serializzazioni complete dello stato
+ * per ogni risposta; e fra l'una e l'altra c'era una finestra in cui la carta
+ * era già avanzata e il ripasso non era ancora registrato. Una scrittura sola
+ * chiude tutte e due le cose.
+ */
+export function recordReview(card, entry, code = read().lang) {
   return withDeck((deck) => {
+    deck.cards[card.id] = card;
     deck.log.push(entry);
-    if (deck.log.length > LOG_MAX) deck.log.splice(0, deck.log.length - LOG_MAX);
+    if (deck.log.length > LOG_MAX) trimLog(deck);
     rollDay(deck, entry.t);
     deck.daily.reviewed += 1;
     deck.daily.xp = (deck.daily.xp || 0) + (entry.xp || 0);
@@ -160,6 +263,39 @@ export function logReview(entry, code = read().lang) {
     bumpStreak(deck, entry.t);
     return deck.daily;
   }, code);
+}
+
+/*
+ * Il registro ha un tetto, e quello che si butta non è indifferente.
+ *
+ * Tagliare le voci più vecchie una per una sembra la cosa ovvia ed è la
+ * peggiore: `optimizer.replay()` scarta ogni carta di cui non vede il PRIMO
+ * ripasso, e il primo ripasso è esattamente quello che il taglio cronologico
+ * porta via per prima. Così le carte più vecchie — le uniche con storie lunghe,
+ * cioè le più informative — diventano inutilizzabili per sempre proprio quando
+ * ce ne sono abbastanza per tarare il modello.
+ *
+ * Si buttano invece storie INTERE, dalla carta vista meno di recente in giù:
+ * quello che resta resta completo e utilizzabile. Il prezzo dichiarato è che i
+ * grafici per giorno perdono qualche ripasso sparso nei giorni vecchi invece
+ * di avere un taglio netto: è il prezzo giusto, perché quei grafici raccontano
+ * il passato mentre il registro serve a prevedere il futuro.
+ */
+function trimLog(deck) {
+  const last = new Map();
+  for (const e of deck.log) last.set(e.id, Math.max(last.get(e.id) || 0, e.t));
+  const order = [...last.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id);
+  const doomed = new Set();
+  let left = deck.log.length;
+  for (const id of order) {
+    if (left <= LOG_MAX) break;
+    doomed.add(id);
+    left -= deck.log.filter((e) => e.id === id).length;
+  }
+  deck.log = deck.log.filter((e) => !doomed.has(e.id));
+  /* Se una carta sola sfonda il tetto da sola non resta niente da buttare:
+   * meglio un registro un po' sopra il tetto che un ciclo che non finisce. */
+  if (deck.log.length > LOG_MAX) deck.log.splice(0, deck.log.length - LOG_MAX);
 }
 
 function rollDay(deck, ts) {
@@ -212,6 +348,7 @@ export function exportJson() {
 export function importJson(text) {
   const parsed = JSON.parse(text);
   if (!parsed || typeof parsed !== 'object' || !parsed.decks) throw new Error('File non riconosciuto');
+  cache = null;
   write({
     ...structuredClone(DEFAULTS),
     ...parsed,

@@ -2,7 +2,10 @@
 <html lang="it">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+  <!-- niente maximum-scale né user-scalable=no: bloccare lo zoom è un fallimento
+       WCAG 1.4.4, e qui si legge cirillico con l’accento tonico segnato, cioè
+       proprio il caso in cui ingrandire serve. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Frasi — impara una lingua frase per frase</title>
   <meta name="description" content="Studia una lingua memorizzando frasi corte, con test di livello adattivo e ripetizione dilazionata.">
   <meta name="theme-color" content="#0d1117">

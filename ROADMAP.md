@@ -67,6 +67,25 @@ Una tappa per iterazione. Ogni tappa finisce quando è **implementata, provata
 - [ ] **8. Riepilogo settimanale** — cosa è migliorato e cosa no, misurato:
       ritenzione, parole nuove, punti grammaticali consolidati.
 
+## Fuori dalle tappe: difetti chiusi il 29/08/2026
+
+Non erano tappe, erano cose rotte. Chi scrive la prossima tappa deve sapere che:
+
+- **i pesi FSRS si sono spostati dalle impostazioni al mazzo** (`deck.w`, non
+  `settings.w`): tarare una lingua non ritara più le altre. La migrazione butta
+  i pesi globali di prima invece di attribuirli a caso.
+- **il test parte da un prior scelto da chi studia**, con una domanda prima
+  della prima domanda: `Irt.estimate(responses, priorMean)` e `Irt.PRIORS`.
+  La griglia di quadratura è arrivata a ±7 per reggere i prior estremi.
+- **i distrattori vengono dallo stesso punto grammaticale** (`confusables()` in
+  `exercises.js`): un esercizio nuovo che pesca opzioni sbagliate a caso
+  reintroduce la scorciatoia lessicale che questa app dice di non avere.
+- **una scrittura fallita di `localStorage` non è più silenziosa**
+  (`Store.storageError()`), e il registro si taglia per storie intere invece che
+  cronologicamente, altrimenti l'ottimizzatore perde proprio le carte migliori.
+- **`Store.saveCard` e `Store.logReview` non esistono più**: una risposta è una
+  scrittura sola, `Store.recordReview(card, entry)`.
+
 ## Idee tenute in caldo
 
 - Modo "conversazione": due o tre frasi collegate invece di frasi isolate.

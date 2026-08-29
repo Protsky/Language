@@ -51,12 +51,51 @@ function shuffle(items, rnd) {
 
 const pickSome = (pool, n, rnd) => shuffle(pool, rnd).slice(0, n);
 
-/** Frasi vicine per livello: distrattori plausibili, non assurdi. */
-function neighbours(lang, sentence, rnd, limit = 24) {
+/**
+ * Da dove vengono i distrattori, e perché non basta «frasi di livello vicino».
+ *
+ * Con tre opzioni pescate a caso fra frasi dello stesso livello, la risposta
+ * giusta si trova riconoscendo una parola piena — «caffè» sta in una sola
+ * delle quattro — senza sapere niente della regola che la frase insegna. Il
+ * gradino diventa gratis, e il voto che ne esce dice a FSRS che la carta è
+ * solida quando non lo è: è la stessa illusione di competenza contro cui è
+ * costruito tutto il resto dell'app, entrata dalla porta di servizio.
+ *
+ * Quindi si preferiscono, in ordine:
+ *   1. le frasi con LO STESSO punto grammaticale — sono le coppie minime che
+ *      il corpus contiene apposta (`wo` contro `wohin`, `ser` contro `estar`):
+ *      per scartarle bisogna sapere la regola, che è esattamente ciò che si
+ *      sta esercitando;
+ *   2. le frasi dello stesso settore e livello vicino — stesso vocabolario,
+ *      quindi la scorciatoia lessicale non funziona;
+ *   3. il resto del livello vicino, come prima.
+ *
+ * È il richiamo sotto interferenza già rivendicato per l'esercizio Abbina,
+ * portato dove finora non c'era.
+ */
+function confusables(lang, sentence, rnd, limit = 40) {
   const target = levelIndex(sentence.lv);
   const pool = lang.sentences.filter((s) => s.id !== sentence.id);
-  const near = pool.filter((s) => Math.abs(levelIndex(s.lv) - target) <= 1);
-  return pickSome(near.length >= limit ? near : pool, limit, rnd);
+
+  const sameRule = pool.filter((s) => s.g === sentence.g);
+  const taken = new Set(sameRule.map((s) => s.id));
+
+  const near = pool.filter((s) => !taken.has(s.id) && Math.abs(levelIndex(s.lv) - target) <= 1);
+  const sameDomain = near.filter((s) => s.dom.some((d) => sentence.dom.includes(d)));
+  const domainIds = new Set(sameDomain.map((s) => s.id));
+  const otherNear = near.filter((s) => !domainIds.has(s.id));
+
+  const ranked = [
+    ...shuffle(sameRule, rnd),
+    ...shuffle(sameDomain, rnd),
+    ...shuffle(otherNear, rnd),
+  ];
+  /* Se il corpus non basta — punto grammaticale con un esempio solo, livello
+   * quasi vuoto — si allarga a tutto: meglio un distrattore facile che tre
+   * opzioni invece di quattro. */
+  if (ranked.length >= limit) return ranked.slice(0, limit);
+  const rest = pool.filter((s) => !ranked.some((r) => r.id === s.id));
+  return [...ranked, ...shuffle(rest, rnd)].slice(0, limit);
 }
 
 /* ------------------------ 1. riconosci il senso ------------------------- */
@@ -69,6 +108,9 @@ function neighbours(lang, sentence, rnd, limit = 24) {
  * traduzioni; chi punta a parlare vede l'italiano e sceglie fra quattro frasi
  * nella lingua che studia — stesso esercizio, ma nella direzione in cui poi
  * dovrà usarla.
+ *
+ * Le tre opzioni sbagliate vengono da `confusables()`: prima le frasi con lo
+ * stesso punto grammaticale, non tre frasi qualsiasi del livello.
  */
 export function buildChoice(sentence, lang, seed, direction = 'understand') {
   const rnd = seeded(`${seed}|choice`);
@@ -76,7 +118,7 @@ export function buildChoice(sentence, lang, seed, direction = 'understand') {
   const answer = pick(sentence);
   const used = new Set([answer]);
   const wrong = [];
-  for (const s of neighbours(lang, sentence, rnd, 40)) {
+  for (const s of confusables(lang, sentence, rnd, 40)) {
     if (wrong.length === 3) break;
     const option = pick(s);
     if (used.has(option)) continue;
@@ -95,15 +137,27 @@ const words = (text) => text.split(/\s+/).filter(Boolean);
  * Tessere da rimettere in fila, più due parole di troppo. Sull'ordine delle
  * parole si gioca metà del tedesco, e toccare le tessere non richiede la
  * tastiera: meno carico estraneo, più attenzione alla struttura.
+ *
+ * Anche qui le due parole di troppo contano. Prese da una frase qualsiasi si
+ * riconoscono a vista e si scartano senza leggere niente; prese da una frase
+ * sullo STESSO punto grammaticale sono quasi sempre l'altra forma della stessa
+ * cosa — l'articolo nel caso sbagliato, l'ausiliare che non va, la
+ * preposizione gemella — e per scartarle bisogna sapere la regola.
  */
 export function buildTiles(sentence, lang, seed) {
   const rnd = seeded(`${seed}|tiles`);
   const answer = words(sentence.text);
   const own = new Set(answer.map((w) => w.toLowerCase()));
   const extras = [];
-  for (const s of neighbours(lang, sentence, rnd, 40)) {
+  for (const s of confusables(lang, sentence, rnd, 40)) {
     if (extras.length === 2) break;
-    const candidate = words(s.text).find((w) => w.length > 1 && !own.has(w.toLowerCase()));
+    /* Dentro una frase confondibile si preferisce la parola più corta: sono le
+     * parole grammaticali — articoli, preposizioni, ausiliari — e sono quelle
+     * che si possono davvero scambiare con una della frase. Una parola piena
+     * lunga e di un altro argomento tornerebbe a essere gratis da scartare. */
+    const candidate = words(s.text)
+      .filter((w) => w.length > 1 && !own.has(w.toLowerCase()))
+      .sort((a, b) => a.length - b.length)[0];
     if (!candidate) continue;
     own.add(candidate.toLowerCase());
     extras.push(candidate);

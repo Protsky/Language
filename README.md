@@ -31,6 +31,30 @@ frase di sei parole sì, e resta comunque dentro la memoria di lavoro. Quindi:
 | 🗣️ | **Produci** — la frase intera, scritta o dettata a voce | confronto completo |
 | 🎧 | **Ascolta e scrivi** — una produzione su tre arriva senza testo, solo audio | confronto completo |
 
+### I distrattori, che non sono riempitivo
+
+Le tre opzioni sbagliate di *Riconosci* e le due tessere di troppo di *Componi*
+decidono che cosa misura l'esercizio. Prese fra frasi qualsiasi dello stesso
+livello, la risposta giusta si trova riconoscendo **una parola piena** — "caffè"
+sta in una sola delle quattro — senza sapere niente della regola che la frase
+insegna: il gradino diventa gratis, e il voto che ne esce dice a FSRS che la
+carta è solida quando non lo è. È la stessa illusione di competenza contro cui
+è costruito tutto il resto dell'app, entrata dalla porta di servizio.
+
+I distrattori vengono quindi, in ordine: dalle frasi con **lo stesso punto
+grammaticale** — sono le coppie minime che il corpus contiene apposta, `wo`
+contro `wohin`, `ser` contro `estar` — poi da quelle dello **stesso settore** a
+livello vicino, e solo dopo dal resto. Dove il corpus ha almeno tre altri
+esempi della stessa regola, i tre distrattori vengono **tutti** da lì: sono 172
+frasi su 211 in tedesco e 189 su 232 in inglese, e il validatore lo verifica
+lingua per lingua.
+
+In pratica: alla richiesta "Mi ha aiutato molto" le quattro opzioni sono
+`Mir geht es gut, danke` · `Das gefällt mir sehr` · `Er hat mir sehr geholfen` ·
+`Es ist mir egal, wer das macht` — quattro dativi, e per scegliere bisogna
+sapere quale verbo lo regge. Fra le tessere di `Ich möchte einen Kaffee` le due
+di troppo sono `eine` e `Tag`: la prima è esattamente l'articolo sbagliato.
+
 ### L'abbinamento che apre la sessione
 
 Quando in coda ci sono almeno quattro riconoscimenti, la sessione si apre con
@@ -247,7 +271,17 @@ allungano, quindi la scelta resta esplicita.
 
 I 19 pesi di FSRS vengono di serie dai ripassi di centinaia di milioni di carte
 altrui. Rifarli sui propri è il senso dichiarato dell'algoritmo, non un extra —
-ed è quello che fa **Progressi ▸ Taratura del modello**:
+ed è quello che fa **Progressi ▸ Taratura del modello**.
+
+I pesi stanno **nel mazzo, non nelle impostazioni**: non sono una preferenza,
+sono un modello adattato ai ripassi di una lingua. Come si consuma la memoria
+sul russo — alfabeto diverso, nessuna parola trasparente — non dice niente su
+come si consuma sullo spagnolo. Fino al 29/08/2026 erano un'impostazione
+globale, quindi tarare una lingua ritarava di nascosto tutte le altre; i pesi
+globali di allora la migrazione li butta invece di regalarli a una lingua a
+caso, perché non c'è modo di sapere su quale erano stati calcolati.
+
+Come funziona:
 
 1. dal registro si ricostruisce la storia di ogni carta (voto e giorni
    trascorsi, in ordine), scartando quelle di cui non si conosce l'inizio;
@@ -312,15 +346,42 @@ Test adattivo su modello logistico a due parametri:
 
 - `P(θ) = 1 / (1 + e^(-a(θ-b)))`, dove θ è la tua abilità, `b` la difficoltà
   dell'item e `a` quanto quell'item discrimina;
-- dopo ogni risposta θ si ristima con **EAP** su una griglia con prior N(0,1):
-  regge anche i pattern "tutte giuste" o "tutte sbagliate", dove la massima
-  verosimiglianza divergerebbe;
+- dopo ogni risposta θ si ristima con **EAP** su una griglia con prior
+  N(m, 1): regge anche i pattern "tutte giuste" o "tutte sbagliate", dove la
+  massima verosimiglianza divergerebbe;
 - l'item successivo è quello di **massima informazione di Fisher** in θ, cioè
   quello di cui l'esito è meno prevedibile;
 - ci si ferma quando l'errore standard scende sotto 0.35, o dopo 16 domande.
 
 Le soglie in θ sono ancorate alle bande del QCER (A1-C2). Sulle banche reali,
 in simulazione, l'abilità vera viene recuperata entro ±0.36 su tutta la scala.
+
+#### La domanda prima del test
+
+Il centro `m` del prior non è sempre zero, e la differenza si vede alla prima
+domanda. Con un prior N(0,1) la stima parte da metà scala — fra B1 e B2 — e
+l'item di massima informazione è di conseguenza difficile: chi non ha mai
+aperto un libro di tedesco si vedeva arrivare come **domanda 1** una frase al
+Konjunktiv II, e poi altre cinque che non poteva capire, perché la regola di
+arresto chiede almeno otto risposte. Il livello finale ci arrivava lo stesso:
+quello che si perdeva per strada era chi stava studiando.
+
+Adesso prima del test c'è **una domanda sola** — mai studiata / qualche base /
+me la cavo / la uso / non saprei — e sposta il centro del prior a -2.2, -1.3,
+-0.4, +0.5 o 0. È la prassi dei test adattivi veri, dove il prior si prende da
+un questionario di ingresso (van der Linden & Glas 2000). Dichiarando "mai
+studiata", la prima domanda tedesca diventa `Ich habe ____ Zeit`.
+
+Due cose che rendono la scelta difendibile invece che comoda:
+
+- **si sposta la media, non la larghezza.** La deviazione standard resta 1,
+  cioè il restringimento è quello di prima: la domanda d'ingresso è un punto di
+  partenza, non una risposta. Chi si sopravvaluta viene smentito — misurato: un
+  principiante vero (θ = -2.2) che dichiara "la uso" esce dal test a -1.79.
+- **la griglia di quadratura arriva a ±7** e non più a ±4. Con la media a -2.2
+  un bordo a -4 taglia la coda da un lato solo, e la stima esce spostata in su
+  di 0.08 già prima della prima risposta: il test direbbe qualcosa che nessuno
+  gli ha detto.
 
 ## Il corpus
 
@@ -428,9 +489,36 @@ dialetto abbia il suo equivalente standard.
 ## I dati
 
 Tutto resta su questo dispositivo, in `localStorage`. L'unica cosa che esce è
-la frase da leggere ad alta voce, e solo se la voce online è accesa. Da *Impostazioni* si
-esporta e si reimporta un backup JSON: conviene farlo prima di cambiare
-telefono o svuotare i dati del browser.
+la frase da leggere ad alta voce, e solo se la voce online è accesa. Da
+*Impostazioni* si esporta e si reimporta un backup JSON.
+
+Quello che questa app accumula — mesi di storia dei ripassi — è anche l'unica
+cosa che non si può rifare. Quindi:
+
+- **l'indirizzo fa parte dell'identità del deposito.** `localStorage` è legato
+  all'origine: aperta da un indirizzo diverso, l'app riparte vuota. Su un
+  tunnel effimero, che cambia nome a ogni riavvio, non si accumula nemmeno una
+  settimana — e l'icona aggiunta alla schermata Home punta a un indirizzo morto.
+  Serve un dominio stabile, e le impostazioni lo dicono invece di lasciarlo
+  scoprire.
+- **si chiede al browser di non sfrattare i dati** (`navigator.storage.persist`),
+  all'avvio e di nuovo quando si comincia a studiare. Le impostazioni mostrano
+  se il permesso c'è davvero: senza, Safari li cancella dopo settimane di
+  inattività sul sito.
+- **una scrittura fallita si vede.** Con lo spazio esaurito, o in navigazione
+  privata, `localStorage` rifiuta di scrivere; prima l'errore finiva in un
+  `catch` vuoto e si poteva studiare un'ora intera senza registrare niente.
+  Adesso resta segnato e la home lo dice in rosso. Un mazzo tedesco studiato per
+  intero pesa circa mezzo megabyte e il tetto di Safari è 5 MB: con qualche
+  lingua ci si arriva.
+- **il registro ha un tetto di 6000 ripassi, e si taglia per storie intere.**
+  Tagliare le voci più vecchie una per una sembrava ovvio ed era la cosa
+  peggiore: l'ottimizzatore scarta ogni carta di cui non vede il primo ripasso,
+  che è esattamente quello che il taglio cronologico porta via per primo — le
+  carte più vecchie, cioè le uniche con storie lunghe, diventavano inutilizzabili
+  proprio quando ce n'erano abbastanza per tarare il modello. Adesso si buttano
+  storie complete, dalla carta vista meno di recente in giù, e quello che resta
+  resta utilizzabile per intero.
 
 ## Provarla
 
@@ -530,10 +618,35 @@ Restano regolabili velocità (con il moltiplicatore per lingua) e **tono**.
  Per il dialetto non esiste una voce
 sintetica: si ripiega sul tedesco svizzero standard.
 
+## Leggibilità, e chi non guarda lo schermo
+
+Tre cose che non si vedono finché non servono:
+
+- **lo zoom non è bloccato.** La pagina non dichiara più `user-scalable=no`:
+  impedire di ingrandire è un fallimento WCAG 1.4.4, e qui si legge cirillico
+  con l'accento tonico segnato, cioè proprio il caso in cui ingrandire serve.
+- **il testo straniero dichiara la propria lingua.** La pagina è `lang="it"`, e
+  senza un `lang` sulle frasi VoiceOver leggeva `Ich hätte gern` con la voce
+  italiana. Adesso ce l'hanno le opzioni, le tessere, i buchi, la soluzione, il
+  campo dove si scrive e la colonna destra dell'abbinamento.
+- **la correzione viene annunciata.** Il riquadro parola per parola è un
+  `role="status"` con `aria-live="polite"`: chi usa lo screen reader sente com'è
+  andata invece di doverla cercare.
+
+## Quando esce una versione nuova
+
+L'app è statica e si aggiorna riscrivendo i file, quindi il service worker può
+trovarsi una versione nuova sotto i piedi a metà sessione. Non la prende:
+il worker nuovo si installa e **aspetta** (niente `skipWaiting` all'installazione,
+che servirebbe i moduli nuovi a una pagina caricata con quelli vecchi), un
+avviso in fondo allo schermo dice che c'è, e a dargli il posto è chi studia
+quando ha finito la carta che ha in mano. Il numero di versione della cache in
+`sw.js` è quello che fa comparire l'avviso: va alzato a ogni pubblicazione.
+
 ## Strumenti
 
 ```bash
-node tools/validate.mjs     # corpus, motori, percorso, esercizi, taratura, voce: 409 controlli
+node tools/validate.mjs     # corpus, motori, percorso, esercizi, taratura, deposito, voce: 450 controlli
 node tools/corpus-review.mjs       # che cosa manca al corpus, lingua per lingua
 node tools/smoke.mjs        # 127 controlli end-to-end in Chromium (serve playwright)
 python3 tools/make-icons.py        # rigenera le icone PNG

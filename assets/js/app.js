@@ -14,7 +14,7 @@ import * as Chart from './chart.js';
 import * as Fsrs from './fsrs.js';
 import { createScheduler, GRADES, REVIEW, NEW, DEFAULT_W } from './fsrs.js';
 import * as Opt from './optimizer.js';
-import { buildQueue, splitId, TYPES, nextDue, targetLevel, levelScore } from './scheduler.js';
+import { buildQueue, splitId, TYPES, nextDue, targetLevel, levelScore, pendingUnlocks } from './scheduler.js';
 import * as Units from './units.js';
 import { diff } from './check.js';
 import * as Ex from './exercises.js';
@@ -83,9 +83,11 @@ let exam = null;
 let lang = null;
 
 const settings = () => Store.getSettings();
+/* I pesi sono del mazzo: tarare il russo non deve cambiare gli intervalli dello spagnolo. */
+const deckW = () => (lang ? Store.getW(lang.code) : null);
 const scheduler = () => {
   const cfg = settings();
-  return createScheduler({ requestRetention: cfg.retention, w: cfg.w || undefined });
+  return createScheduler({ requestRetention: cfg.retention, w: deckW() || undefined });
 };
 
 /* --------------------------------- audio -------------------------------- */
@@ -222,6 +224,17 @@ function speakGuided(root, text) {
 }
 
 /** La frase come parole toccabili: un tocco legge solo quella. */
+/*
+ * L'attributo `lang` sul testo straniero, che non è un dettaglio.
+ *
+ * La pagina si dichiara `lang="it"`: senza questo, VoiceOver legge
+ * «Ich hätte gern» con la voce italiana e il risultato non è comprensibile,
+ * e il browser applica a una frase russa le regole tipografiche dell'italiano.
+ * Vale per ogni pezzo di testo nella lingua che si studia, non solo per la
+ * soluzione.
+ */
+const inLang = () => (lang?.locale ? ` lang="${lang.locale}"` : '');
+
 const sentenceTokens = (text) => text
   .split(/\s+/)
   .filter(Boolean)
@@ -245,7 +258,7 @@ function go(next) {
 }
 
 function renderTabs() {
-  const hidden = ['welcome', 'pickLang', 'test', 'testResult', 'study', 'done', 'pickDomains'].includes(screen);
+  const hidden = ['welcome', 'pickLang', 'prior', 'test', 'testResult', 'study', 'done', 'pickDomains'].includes(screen);
   tabs.hidden = hidden;
   document.body.classList.toggle('no-tabs', hidden);
   if (hidden) return;
@@ -271,14 +284,15 @@ function setBar(title, { back = null, action = null } = {}) {
 /* -------------------------------- render -------------------------------- */
 
 function render() {
-  const state = Store.getState();
-  lang = state.lang ? byCode(state.lang) : null;
+  const code = Store.getLang();
+  lang = code ? byCode(code) : null;
   if (!lang && !['welcome', 'pickLang'].includes(screen)) screen = 'welcome';
 
   const painters = {
     welcome: paintWelcome,
     pickLang: paintPickLang,
     pickDomains: paintPickDomains,
+    prior: paintPrior,
     test: paintTest,
     testResult: paintTestResult,
     home: paintHome,
@@ -345,7 +359,7 @@ function paintPickLang() {
     Store.setLang(code);
     lang = byCode(code);
     const deck = Store.getDeck(code);
-    go(deck.profile.at ? 'home' : 'test');
+    go(deck.profile.at ? 'home' : 'prior');
   });
   view.append(el);
 }
@@ -378,8 +392,48 @@ function paintPickDomains() {
 
 /* ----------------------------- test di livello --------------------------- */
 
-function startExam() {
-  exam = { responses: [], asked: [], est: { theta: 0, se: 1 }, item: null, locked: false };
+/**
+ * Una domanda prima del test, e non è una formalità.
+ *
+ * Senza, il prior è N(0,1): la stima parte da metà scala, il primo item scelto
+ * per massima informazione sta fra B1 e B2, e chi non ha mai studiato la lingua
+ * riceve come domanda 1 una che non può capire — e poi altre cinque, perché la
+ * regola di arresto chiede almeno otto risposte. Il livello finale ci arriva
+ * lo stesso; quello che si perde per strada è chi sta studiando.
+ *
+ * La risposta sposta solo il centro del prior, non la sua larghezza: se ti
+ * sottovaluti o ti sopravvaluti, otto risposte bastano a smentirti.
+ */
+function paintPrior() {
+  setBar('Prima di cominciare', { back: () => go('pickLang') });
+  const el = h(`
+    <section class="pad stack">
+      <p class="lead">Quanto conosci ${esc(lang.name.toLowerCase())} adesso? Serve solo a scegliere da che
+      difficoltà partono le domande: il test corregge da sé se sbagli la stima.</p>
+      <div class="stack">
+        ${Irt.PRIORS.map((p) => `
+          <button class="card card--tap" data-prior="${p.id}">
+            <span class="card__body">
+              <span class="card__title">${esc(p.label)}</span>
+              <span class="card__sub">${esc(p.blurb)}</span>
+            </span>
+            <span class="card__go">›</span>
+          </button>`).join('')}
+      </div>
+      <button class="btn btn--ghost small" data-act="skip">Salta il test, parto da capo</button>
+    </section>`);
+  on(el, '[data-prior]', 'click', (e) => startExam(e.currentTarget.dataset.prior));
+  on(el, '[data-act="skip"]', 'click', () => {
+    Store.saveProfile(lang.code, { theta: -1.75, se: 1, cefr: 'A1', skipped: true, prior: 'zero' });
+    exam = null;
+    go('pickDomains');
+  });
+  view.append(el);
+}
+
+function startExam(priorId = 'boh') {
+  const prior = Irt.priorOf(priorId);
+  exam = { responses: [], asked: [], prior, est: { theta: prior.mean, se: 1 }, item: null, locked: false };
   nextExamItem();
   go('test');
 }
@@ -422,7 +476,7 @@ function paintTest() {
     });
     exam.asked.push(it.id);
     exam.responses.push({ a: it.a, b: it.b, correct, id: it.id, lv: it.lv });
-    exam.est = Irt.estimate(exam.responses);
+    exam.est = Irt.estimate(exam.responses, exam.prior.mean);
     setTimeout(() => {
       exam.locked = false;
       if (Irt.shouldStop(exam.responses, exam.est.se)) finishExam();
@@ -438,8 +492,8 @@ function paintTest() {
 }
 
 function finishExam() {
-  const s = Irt.summary(exam.responses);
-  Store.saveProfile(lang.code, { theta: s.theta, se: s.se, cefr: s.cefr, skipped: false });
+  const s = Irt.summary(exam.responses, exam.prior.mean);
+  Store.saveProfile(lang.code, { theta: s.theta, se: s.se, cefr: s.cefr, skipped: false, prior: exam.prior.id });
   exam = { ...exam, result: s };
   go('testResult');
 }
@@ -465,14 +519,35 @@ function paintTestResult() {
           su ${plural(r.total, 'domanda', 'domande')} (${r.correct} corrette).
           L’intervallo di confidenza al 95% copre ${r.ci[0] === r.ci[1] ? r.ci[0] : `${r.ci[0]}–${r.ci[1]}`}:
           più studi, più il livello si aggiusta da solo.
+          ${exam?.prior && exam.prior.id !== 'boh' ? `La stima è partita da «${esc(exam.prior.label.toLowerCase())}», e le ${plural(r.total, 'risposta', 'risposte')} l’hanno spostata da lì.` : ''}
         </p>
       </div>
       <button class="btn btn--primary" data-act="next">Scegli il settore</button>
       <button class="btn btn--ghost" data-act="again">Rifai il test</button>
     </section>`);
   on(el, '[data-act="next"]', 'click', () => { exam = null; go('pickDomains'); });
-  on(el, '[data-act="again"]', 'click', () => startExam());
+  on(el, '[data-act="again"]', 'click', () => { exam = null; go('prior'); });
   view.append(el);
+}
+
+/**
+ * Se una scrittura è fallita si dice qui, e si dice sempre.
+ *
+ * È l'unico caso in cui l'app deve interrompere quello che stava raccontando:
+ * continuare a mostrare punti, serie e curve calcolate su dati che non stanno
+ * finendo su disco vuol dire mostrare numeri che mentono.
+ */
+function storageAlarm() {
+  const err = Store.storageError();
+  if (!err) return '';
+  return `
+    <div class="card card--flat alarm">
+      <p><b>I progressi non si stanno salvando.</b></p>
+      <p class="small">${err.quota
+        ? 'Lo spazio del browser è esaurito. Esporta un backup dalle impostazioni, poi libera spazio o azzera una lingua che non studi.'
+        : 'Il browser rifiuta di scrivere: succede in navigazione privata. Quello che fai adesso andrà perso alla chiusura della scheda.'}</p>
+      <p class="small muted">Ultimo tentativo fallito alle ${new Date(err.at).toLocaleTimeString('it-CH', { hour: '2-digit', minute: '2-digit' })}.</p>
+    </div>`;
 }
 
 /* --------------------------------- home --------------------------------- */
@@ -490,8 +565,14 @@ function paintHome() {
 
   setBar(`${lang.flag} ${lang.name}`, { action: { label: 'Cambia', fn: () => go('pickLang') } });
 
+  /* C'è ancora materiale da introdurre? Da questo dipende se il bottone
+   * "studia lo stesso" fa qualcosa o è un bottone morto. */
+  const unseen = lang.sentences.length - seen;
+  const more = unseen > 0 || pendingUnlocks(lang, deck, cfg.direction).length > 0;
+
   const el = h(`
     <section class="pad stack">
+      ${storageAlarm()}
       <div class="today">
         ${Chart.ring({
           value: day.xp,
@@ -528,8 +609,14 @@ function paintHome() {
            </button>`
         : `<div class="card card--flat empty">
              <p><b>Per oggi è tutto.</b></p>
-             <p class="small muted">${upcoming ? `Il prossimo ripasso è fra ${humanDelay(upcoming - Date.now())}.` : 'Aggiungi frasi da Esplora quando vuoi.'}</p>
-             <button class="btn btn--ghost small" data-act="extra">Studia lo stesso 5 frasi nuove</button>
+             <p class="small muted">${upcoming
+               ? `Il prossimo ripasso è fra ${humanDelay(upcoming - Date.now())}.`
+               : 'Nessun ripasso in programma: le carte tornano da sole quando è il momento.'}</p>
+             ${more
+               ? '<button class="btn btn--ghost small" data-act="extra">Studia lo stesso 5 frasi nuove</button>'
+               : `<p class="small muted">Hai già incontrato tutte le ${lang.sentences.length} frasi di ${esc(lang.name.toLowerCase())}:
+                  non ce ne sono altre da introdurre, e un bottone che non fa niente non te lo metto.
+                  Restano i ripassi, che sono la metà del lavoro.</p>`}
            </div>`}
 
       ${pathCard(deck)}
@@ -635,6 +722,9 @@ function paintPath() {
  * saltarli per fare un'unità a piacere sarebbe barare con le scadenze.
  */
 function startSession({ extraNew = 0, unit = null } = {}) {
+  /* Secondo tentativo, dopo un gesto: certi browser concedono la persistenza
+   * solo a un sito con cui si sta davvero interagendo. */
+  Store.requestPersistence();
   const deck = Store.getDeck(lang.code);
   const cfg = settings();
   const day = Store.today(lang.code);
@@ -918,7 +1008,7 @@ function paintStudy() {
     const shown = (type === 'comp' && !session.ex.reversed) || type === 'cloze';
     body.append(h(`
       <div class="reveal">
-        ${shown ? '' : `<p class="solution">${sentenceTokens(sentence.text)}</p>`}
+        ${shown ? '' : `<p class="solution"${inLang()}>${sentenceTokens(sentence.text)}</p>`}
         ${sentence.bridge ? `<p class="bridge"><span>${esc(lang.bridge)}</span>${esc(sentence.bridge)}</p>` : ''}
         <p class="note"><b>${esc(sentence.g)}</b> — ${esc(sentence.note)}</p>
         <div class="tags">${sentence.dom.map((d) => `<span class="tag">${esc(DOMAINS.find((x) => x.id === d)?.label || d)}</span>`).join('')}</div>
@@ -984,7 +1074,7 @@ function paintMatch() {
               ${m.solved.has(row.i) ? 'disabled' : ''}>${esc(row.text)}</button>`).join('')}
           </div>
           <div class="match__col">
-            ${right.map((row) => `<button class="match__cell${cellClass(row.i, 'r')}" data-side="r" data-pair="${row.i}"
+            ${right.map((row) => `<button class="match__cell${cellClass(row.i, 'r')}" data-side="r" data-pair="${row.i}"${inLang()}
               ${m.solved.has(row.i) ? 'disabled' : ''}>${esc(row.text)}</button>`).join('')}
           </div>
         </div>
@@ -1078,7 +1168,7 @@ function askComp(body, foot, sentence, done) {
   } else {
     body.append(h(`
       <div class="stack center">
-        <p class="target">${sentenceTokens(sentence.text)}</p>
+        <p class="target"${inLang()}>${sentenceTokens(sentence.text)}</p>
         ${audioButtons()}
         ${done ? '' : '<p class="muted small">Quale traduzione è la sua?</p>'}
       </div>`));
@@ -1092,7 +1182,7 @@ function askComp(body, foot, sentence, done) {
         let cls = '';
         if (done && i === session.ex.correct) cls = ' btn--right';
         else if (done && i === session.chosen) cls = ' btn--wrong';
-        return `<button class="btn btn--option${cls}" data-choice="${i}"${done ? ' disabled' : ''}>${esc(o)}</button>`;
+        return `<button class="btn btn--option${cls}" data-choice="${i}"${session.ex.reversed ? inLang() : ''}${done ? ' disabled' : ''}>${esc(o)}</button>`;
       }).join('')}
     </div>`);
   body.append(list);
@@ -1113,7 +1203,7 @@ function askBuild(body, foot, sentence, done) {
 
   const line = h(`<div class="tray${done ? (session.result.correct ? ' tray--ok' : ' tray--ko') : ''}">
     ${picked.length
-      ? picked.map((i, pos) => `<button class="tile tile--set" data-drop="${pos}"${done ? ' disabled' : ''}>${esc(session.ex.tiles[i])}</button>`).join('')
+      ? picked.map((i, pos) => `<button class="tile tile--set" data-drop="${pos}"${inLang()}${done ? ' disabled' : ''}>${esc(session.ex.tiles[i])}</button>`).join('')
       : '<span class="tray__ghost">tocca le parole qui sotto</span>'}
   </div>`);
   body.append(line);
@@ -1121,8 +1211,8 @@ function askBuild(body, foot, sentence, done) {
   if (!done) {
     const pool = h(`<div class="tiles">
       ${session.ex.tiles.map((w, i) => picked.includes(i)
-        ? `<span class="tile tile--used">${esc(w)}</span>`
-        : `<button class="tile" data-tile="${i}">${esc(w)}</button>`).join('')}
+        ? `<span class="tile tile--used"${inLang()}>${esc(w)}</span>`
+        : `<button class="tile" data-tile="${i}"${inLang()}>${esc(w)}</button>`).join('')}
     </div>`);
     body.append(pool);
     on(pool, '[data-tile]', 'click', (e) => { picked.push(Number(e.currentTarget.dataset.tile)); render(); });
@@ -1138,14 +1228,14 @@ function askBuild(body, foot, sentence, done) {
 function askCloze(body, foot, sentence, done) {
   let blank = -1;
   let tok = -1;
-  const line = h(`<p class="target target--cloze">${session.ex.parts.map((p) => {
+  const line = h(`<p class="target target--cloze"${inLang()}>${session.ex.parts.map((p) => {
     if (!p.blank) return done ? `<span class="tok" data-tok="${++tok}">${esc(p.text)}</span>` : `<span>${esc(p.text)}</span>`;
     blank += 1;
     const row = done ? session.result.rows[blank] : null;
     if (done) {
       return `<span class="slot slot--${row.correct ? 'ok' : 'ko'} tok" data-tok="${++tok}">${esc(p.answer)}</span>`;
     }
-    return `<input class="slot slot--in" data-blank="${blank}" size="${Math.max(4, p.answer.length)}"
+    return `<input class="slot slot--in" data-blank="${blank}" size="${Math.max(4, p.answer.length)}"${inLang()}
       inputmode="text" autocapitalize="none" autocomplete="off" autocorrect="off" spellcheck="false"
       value="${esc(session.filled[blank])}">`;
   }).join(' ')}</p>`);
@@ -1175,8 +1265,8 @@ function askCloze(body, foot, sentence, done) {
   } else {
     const wrong = session.result.rows.filter((r) => !r.correct);
     if (wrong.length) {
-      body.append(h(`<div class="check check--ko">
-        ${wrong.map((r) => `<p class="small">Hai scritto <b class="w w--missing">${esc(r.given || '—')}</b>, era <b class="w w--ok">${esc(r.answer)}</b>.</p>`).join('')}
+      body.append(h(`<div class="check check--ko" role="status" aria-live="polite">
+        ${wrong.map((r) => `<p class="small">Hai scritto <b class="w w--missing"${inLang()}>${esc(r.given || '—')}</b>, era <b class="w w--ok"${inLang()}>${esc(r.answer)}</b>.</p>`).join('')}
       </div>`));
     }
   }
@@ -1205,7 +1295,7 @@ function askProd(body, foot, sentence, done) {
   }
 
   if (!done) {
-    const input = h(`<input class="input" type="text" inputmode="text" autocapitalize="none" autocomplete="off"
+    const input = h(`<input class="input" type="text"${inLang()} inputmode="text" autocapitalize="none" autocomplete="off"
       autocorrect="off" spellcheck="false" placeholder="${lang.script ? 'scrivi la frase, anche in latino' : 'scrivi la frase'}" value="${esc(session.answer)}">`);
     body.append(input);
     input.addEventListener('input', () => { session.answer = input.value; });
@@ -1232,8 +1322,8 @@ function askProd(body, foot, sentence, done) {
 /** Frase attesa parola per parola, con quello che manca in evidenza. */
 function marksBlock(result) {
   return h(`
-    <div class="check ${result.correct ? 'check--ok' : 'check--ko'}">
-      <div class="check__line">${result.marks.map((m) => `<span class="w w--${m.status}">${esc(m.word)}</span>`).join(' ')}</div>
+    <div class="check ${result.correct ? 'check--ok' : 'check--ko'}" role="status" aria-live="polite">
+      <div class="check__line"${inLang()}>${result.marks.map((m) => `<span class="w w--${m.status}">${esc(m.word)}</span>`).join(' ')}</div>
       ${result.near.length
         ? `<p class="small muted">Hai messo ${result.near.map((n) => `<b>${esc(n.written)}</b>`).join(', ')} al posto di ${result.near.map((n) => `<b>${esc(n.expected)}</b>`).join(', ')}.</p>`
         : ''}
@@ -1255,8 +1345,7 @@ function applyReview(card, grade, type, { miss = null, ms = 0 } = {}) {
   const next = sch.review(card, grade, now);
   if (miss) next.miss = miss;
 
-  Store.saveCard(next, lang.code);
-  Store.logReview({
+  Store.recordReview(next, {
     t: now,
     id: card.id,
     type,
@@ -1423,7 +1512,7 @@ function paintExplore() {
         ${rows.slice(0, 120).map((s) => `
           <div class="row-item${introduced.has(s.id) ? ' row-item--seen' : ''}">
             <div class="row-item__main">
-              <p class="row-item__t">${esc(s.text)}</p>
+              <p class="row-item__t"${inLang()}>${esc(s.text)}</p>
               <p class="row-item__i">${esc(s.it)}</p>
               <p class="row-item__g">${s.lv} · ${esc(s.g)}</p>
             </div>
@@ -1495,7 +1584,7 @@ function gramColor(g) {
  */
 function forgettingCurve(deck, cfg) {
   const median = Stats.medianStability(deck.cards);
-  const s = median || Fsrs.initStability(cfg.w || DEFAULT_W, 3);
+  const s = median || Fsrs.initStability(deck.w || DEFAULT_W, 3);
   const due = Math.max(1, Math.round(Fsrs.intervalFor(s, cfg.retention)));
   const span = Math.max(2, Math.round(due * 2.4));
   const points = [];
@@ -1674,9 +1763,9 @@ let tuning = null;   // esito dell'ultima ottimizzazione, in attesa di conferma
 
 function paintTuning(container, deck, cfg) {
   const sequences = Opt.replay(deck.log);
-  const current = cfg.w || DEFAULT_W;
+  const current = deck.w || DEFAULT_W;
   const now = Opt.score(sequences, current);
-  const personal = Boolean(cfg.w);
+  const personal = Boolean(deck.w);
   const enough = now.n >= Opt.MIN_REVIEWS;
 
   const card = h(`
@@ -1689,6 +1778,8 @@ function paintTuning(container, deck, cfg) {
         I 19 pesi di FSRS che decidono i tuoi intervalli vengono, di serie, dai ripassi di
         centinaia di milioni di carte altrui. Si possono rifare sui tuoi: è il senso
         dichiarato dell’algoritmo, non un extra.
+        La taratura vale per <b>${esc(lang.name.toLowerCase())}</b> e basta: i ripassi di una lingua
+        non dicono come si consuma la memoria in un’altra.
       </p>
       <div class="row">
         <div class="stat">
@@ -1763,18 +1854,18 @@ function paintTuning(container, deck, cfg) {
     }, 30);
   });
   on(card, '[data-act="apply"]', 'click', () => {
-    Store.setSetting('w', tuning.w);
+    Store.setW(tuning.w, lang.code);
     tuning = null;
     render();
   });
   on(card, '[data-act="discard"]', 'click', () => { tuning = null; render(); });
-  on(card, '[data-act="reset-w"]', 'click', () => { Store.setSetting('w', null); render(); });
+  on(card, '[data-act="reset-w"]', 'click', () => { Store.setW(null, lang.code); render(); });
 }
 
 /** Quanto costa la ritenzione che hai chiesto, e quanto costerebbero le altre. */
 function paintRetention(container, deck, cfg) {
   const cost = Opt.measuredCost(deck.log);
-  const curve = Opt.retentionCurve(cfg.w || DEFAULT_W, { cost });
+  const curve = Opt.retentionCurve(deck.w || DEFAULT_W, { cost });
   const here = curve.find((p) => Math.abs(p.retention - cfg.retention) < 0.005) || curve[10];
   const low = curve[0];
   const high = curve[curve.length - 1];
@@ -1965,17 +2056,35 @@ function paintSettings() {
         </p>
       </div>
 
+      ${storageAlarm()}
+
       <div class="card card--flat">
-        <div class="card__head"><b>Dati</b></div>
+        <div class="card__head"><b>Dati</b><span class="muted small" id="spazio">—</span></div>
         <button class="btn btn--ghost" data-act="export">Esporta un backup</button>
         <button class="btn btn--ghost" data-act="import">Importa un backup</button>
         <input type="file" accept="application/json" id="file" hidden>
         <button class="btn btn--danger" data-act="reset">Azzera ${esc(lang.name)}</button>
-        <p class="small muted">Tutto è salvato solo su questo dispositivo. Il backup è un file JSON: tienilo da parte prima di cambiare telefono.</p>
+        <p class="small muted">Tutto è salvato solo su questo dispositivo, e l’indirizzo da cui apri l’app
+        fa parte dell’identità di quel deposito: aperta da un indirizzo diverso, l’app riparte vuota.
+        Il backup è un file JSON, ed è l’unica cosa che attraversa telefoni e indirizzi.</p>
+        <p class="small muted" id="persistenza"></p>
       </div>
 
       <button class="btn btn--ghost small" data-act="why">Perché funziona</button>
     </section>`);
+
+  /* Spazio usato e sfratto: due numeri veri, chiesti al browser. */
+  Store.storageUsage().then((u) => {
+    const slot = view.querySelector('#spazio');
+    if (slot && u) slot.textContent = `${(u.usage / 1048576).toFixed(1)} MB usati`;
+  });
+  navigator.storage?.persisted?.().then((p) => {
+    const slot = view.querySelector('#persistenza');
+    if (!slot) return;
+    slot.textContent = p
+      ? 'Il browser ha promesso di non cancellarli per fare spazio.'
+      : 'Il browser NON ha promesso di conservarli: può cancellarli se lo spazio scarseggia o se non apri l’app per settimane. Il backup, allora, non è una precauzione.';
+  }).catch(() => {});
 
   on(el, '[data-set]', 'input', (e) => {
     const el2 = e.currentTarget;
@@ -2191,10 +2300,54 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-const state = Store.getState();
-screen = state.lang ? 'home' : 'welcome';
+screen = Store.getLang() ? 'home' : 'welcome';
 render();
 
+/* I dati di questa app sono mesi di storia dei ripassi: si chiede al browser
+ * di non buttarli via al primo giro di pulizie. */
+Store.requestPersistence();
+
+/*
+ * Aggiornamenti: si annunciano, non si impongono.
+ *
+ * L'app si aggiorna da sola dietro le quinte (il service worker riscrive la
+ * cache mentre serve la copia vecchia), e senza un avviso l'unico modo di
+ * accorgersene era chiudere e riaprire due volte. Adesso il worker nuovo
+ * aspetta in disparte, un avviso lo dice, e ricarica chi legge — mai in mezzo
+ * a una carta.
+ */
+function offerUpdate(worker) {
+  if (!worker || document.querySelector('.toast')) return;
+  const toast = h(`
+    <div class="toast" role="status">
+      <span>C’è una versione nuova.</span>
+      <button class="btn btn--ghost small" data-act="reload">Ricarica</button>
+      <button class="icon-btn" data-act="dismiss" aria-label="Più tardi">×</button>
+    </div>`);
+  toast.querySelector('[data-act="reload"]').onclick = () => worker.postMessage('prendi-il-posto');
+  toast.querySelector('[data-act="dismiss"]').onclick = () => toast.remove();
+  document.body.append(toast);
+}
+
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+  window.addEventListener('load', async () => {
+    try {
+      const reg = await navigator.serviceWorker.register('./sw.js');
+      if (reg.waiting && navigator.serviceWorker.controller) offerUpdate(reg.waiting);
+      reg.addEventListener('updatefound', () => {
+        const fresh = reg.installing;
+        if (!fresh) return;
+        fresh.addEventListener('statechange', () => {
+          // senza `controller` è la primissima installazione: non c'è niente da aggiornare
+          if (fresh.state === 'installed' && navigator.serviceWorker.controller) offerUpdate(fresh);
+        });
+      });
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloading) return;
+        reloading = true;
+        window.location.reload();
+      });
+    } catch { /* senza service worker l'app funziona, non funziona offline */ }
+  });
 }

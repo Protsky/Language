@@ -19,14 +19,49 @@
  *      test converge in ~15 domande invece di 60.
  */
 
-/** Griglia di quadratura su cui si calcola la distribuzione a posteriori. */
+/*
+ * Griglia di quadratura su cui si calcola la distribuzione a posteriori.
+ *
+ * Arriva a ±7 e non a ±4 perché il prior non è più sempre centrato in zero: con
+ * la media a -2.2 («mai studiata») una griglia che finisce a -4 taglia la coda
+ * da un lato solo, e la media a posteriori esce spostata in su di 0.08 già
+ * prima della prima risposta — cioè il test partirebbe dicendo qualcosa che
+ * nessuno gli ha detto. Il bordo deve stare a cinque deviazioni standard dal
+ * prior PIU' ESTREMO, non da zero; centoventi punti in piu' costano niente.
+ */
 const GRID = (() => {
   const pts = [];
-  for (let x = -4; x <= 4.0001; x += 0.05) pts.push(Math.round(x * 1000) / 1000);
+  for (let x = -7; x <= 7.0001; x += 0.05) pts.push(Math.round(x * 1000) / 1000);
   return pts;
 })();
 
 const PRIOR_SD = 1;
+
+/**
+ * Da dove parte la stima, prima che arrivi la prima risposta.
+ *
+ * Un prior N(0,1) mette il punto di partenza in mezzo alla scala, cioè fra B1
+ * e B2: il primo item scelto per massima informazione è difficile, e chi non
+ * ha mai aperto un libro di tedesco si becca il Konjunktiv II come domanda 1.
+ * Non è un difetto del modello — è un'informazione che avevamo e non abbiamo
+ * chiesto. Nei test adattivi veri il prior si prende da un questionario di
+ * ingresso (van der Linden & Glas 2000, cap. sui prior informativi); qui basta
+ * una domanda sola.
+ *
+ * Si sposta solo la MEDIA, non la deviazione standard: la quantità di
+ * restringimento resta quella di prima, cambia il punto attorno a cui avviene.
+ * Un prior più stretto renderebbe il test più veloce e la risposta di chi
+ * studia più difficile da smentire — e chi si autovaluta sbaglia.
+ */
+export const PRIORS = [
+  { id: 'zero', mean: -2.2, label: 'Mai studiata', blurb: 'parto da zero' },
+  { id: 'scuola', mean: -1.3, label: 'Qualche base', blurb: 'un po’ di scuola, tanto tempo fa' },
+  { id: 'cavo', mean: -0.4, label: 'Me la cavo', blurb: 'reggo una conversazione semplice' },
+  { id: 'uso', mean: 0.5, label: 'La uso', blurb: 'lavoro o vivo in quella lingua' },
+  { id: 'boh', mean: 0, label: 'Non saprei', blurb: 'decida il test da solo' },
+];
+
+export const priorOf = (id) => PRIORS.find((p) => p.id === id) || PRIORS[PRIORS.length - 1];
 
 /** Livelli QCER con il centro della loro banda in θ. */
 export const CEFR = [
@@ -72,15 +107,17 @@ export function itemInfo(theta, a, b) {
 /**
  * Stima EAP di θ (media a posteriori) e relativo errore standard.
  * `responses`: [{ a, b, correct }]
+ * `priorMean`: centro del prior, dalla domanda di ingresso (0 = come prima).
  */
-export function estimate(responses) {
+export function estimate(responses, priorMean = 0) {
   let num = 0;
   let den = 0;
   const post = new Array(GRID.length);
 
   for (let i = 0; i < GRID.length; i++) {
     const th = GRID[i];
-    let lik = Math.exp(-(th * th) / (2 * PRIOR_SD * PRIOR_SD)); // prior N(0,1)
+    // prior N(priorMean, 1): la media viene dalla domanda di ingresso
+    let lik = Math.exp(-((th - priorMean) ** 2) / (2 * PRIOR_SD * PRIOR_SD));
     for (const r of responses) {
       const p = p2pl(th, r.a, r.b);
       lik *= r.correct ? p : 1 - p;
@@ -89,7 +126,7 @@ export function estimate(responses) {
     num += th * lik;
     den += lik;
   }
-  if (!(den > 0)) return { theta: 0, se: PRIOR_SD };
+  if (!(den > 0)) return { theta: priorMean, se: PRIOR_SD };
 
   const theta = num / den;
   let varSum = 0;
@@ -120,8 +157,8 @@ export function shouldStop(responses, se, { min = 8, max = 16, target = 0.35 } =
 }
 
 /** Percorso completo del test, per la schermata di riepilogo. */
-export function summary(responses) {
-  const { theta, se } = estimate(responses);
+export function summary(responses, priorMean = 0) {
+  const { theta, se } = estimate(responses, priorMean);
   const correct = responses.filter((r) => r.correct).length;
   return {
     theta,

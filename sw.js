@@ -1,5 +1,5 @@
 /* Service worker: l'app resta utilizzabile offline dopo la prima visita. */
-const CACHE = 'frasi-v17';
+const CACHE = 'frasi-v19';
 
 const ASSETS = [
   './',
@@ -34,8 +34,21 @@ const ASSETS = [
   'assets/icons/icon-512.png',
 ];
 
+/*
+ * NIENTE `skipWaiting()` qui dentro.
+ *
+ * Prendere il posto del vecchio service worker a metà sessione significa
+ * servire i moduli della versione nuova a una pagina caricata con quelli della
+ * vecchia. Il worker nuovo aspetta, la pagina lo dice con un avviso, e a
+ * prendere il suo posto è chi studia quando ha finito la carta che ha in mano.
+ */
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)));
+});
+
+/* Il via libera arriva dalla pagina, non da qui. */
+self.addEventListener('message', (event) => {
+  if (event.data === 'prendi-il-posto') self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {

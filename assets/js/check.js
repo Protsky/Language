@@ -121,8 +121,13 @@ export function diff(expected, given, fold) {
 }
 
 /**
- * Voto suggerito a partire dal confronto: è solo una proposta, l'ultima
- * parola resta a chi studia (l'autovalutazione è parte del metodo).
+ * Voto suggerito a partire dal confronto.
+ *
+ * Il voto scende dall'esito, non da un giudizio: dopo aver visto la risposta,
+ * riconoscerla viene scambiato per ricordarla (Koriat & Bjork 2005), e chi si
+ * autocorregge si dà ragione più spesso di quanto i dati giustifichino
+ * (Dunlosky & Rawson 2012). Resta un bottone per correggere a mano — "Facile"
+ * nessuna macchina può indovinarlo — ma è l'eccezione, non la regola.
  */
 export function suggestGrade(result) {
   if (result.correct) return 3;                                  // tutto giusto

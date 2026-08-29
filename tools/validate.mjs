@@ -222,6 +222,45 @@ console.log('\n[irt] test adattivo');
   const allRight = Irt.estimate(Array.from({ length: 10 }, () => ({ a: 1.4, b: 0, correct: true })));
   expect(Number.isFinite(allRight.theta) && allRight.theta < 4, 'la stima diverge con tutte le risposte giuste');
   ok('tutte giuste o tutte sbagliate non fanno divergere la stima');
+
+  /* La domanda di ingresso deve cambiare da dove si parte: senza, chi non ha
+   * mai studiato la lingua riceve come prima domanda un item da B2. */
+  for (const m of [-2.2, -1.3, -0.4, 0, 0.5]) {
+    const at = Irt.estimate([], m);
+    expect(Math.abs(at.theta - m) < 0.01, `senza risposte la stima parte da ${at.theta.toFixed(3)} invece che da ${m}`);
+    expect(Math.abs(at.se - 1) < 0.01, `senza risposte l'incertezza è ${at.se.toFixed(3)} invece di 1: la griglia taglia una coda`);
+  }
+  for (const lang of LANGS) {
+    const zero = Irt.pickNext(lang.placement, [], Irt.priorOf('zero').mean, () => 0);
+    const boh = Irt.pickNext(lang.placement, [], Irt.priorOf('boh').mean, () => 0);
+    expect(zero.b < boh.b - 0.5, `[${lang.code}] "mai studiata" non fa partire da domande piu' facili (b ${zero.b} contro ${boh.b})`);
+  }
+  ok('chi dichiara di partire da zero riceve una prima domanda piu’ facile, in tutte le lingue');
+
+  /* ...e non deve incastrarcisi: otto risposte bastano a smentire chi si e'
+   * sopravvalutato, altrimenti la domanda di ingresso non sarebbe un prior ma
+   * una risposta. */
+  {
+    const lang = LANGS.find((l) => l.code === 'de');
+    const prior = Irt.priorOf('uso').mean;
+    const runs = [];
+    for (let k = 0; k < 30; k++) {
+      const asked = [];
+      const resp = [];
+      let est = { theta: prior, se: 1 };
+      while (!Irt.shouldStop(resp, est.se)) {
+        const it = Irt.pickNext(lang.placement, asked, est.theta, rand);
+        if (!it) break;
+        asked.push(it.id);
+        resp.push({ a: it.a, b: it.b, correct: rand() < Irt.p2pl(-2.2, it.a, it.b) });
+        est = Irt.estimate(resp, prior);
+      }
+      runs.push(est.theta);
+    }
+    const mean = runs.reduce((a, b) => a + b, 0) / runs.length;
+    expect(Math.abs(mean - (-2.2)) < 0.6, `chi si sopravvaluta resta a ${mean.toFixed(2)} invece di -2.2`);
+    ok(`un principiante che dichiara "la uso" viene comunque riportato a ${mean.toFixed(2)}`);
+  }
 }
 
 /* ------------------------------ correzione ------------------------------ */
@@ -410,6 +449,28 @@ console.log('\n[exercises] esercizi che si correggono da soli');
   expect(hidesIt(guided), `la parola sbagliata "${victim}" non finisce nel buco`);
   expect(guided.hidden === blind.hidden, 'la storia degli errori cambia il numero dei buchi invece della posizione');
   ok(`i buchi si spostano sulle parole già sbagliate ("${victim}"), a parità di quantità`);
+
+  /*
+   * I distrattori vengono dallo stesso punto grammaticale, quando il corpus ne
+   * ha abbastanza. E' cio' che rende il riconoscimento un esercizio invece che
+   * una caccia alla parola nota.
+   */
+  for (const l of LANGS) {
+    const byRule = new Map();
+    for (const s of l.sentences) byRule.set(s.g, (byRule.get(s.g) || 0) + 1);
+    const byText = new Map(l.sentences.map((s) => [s.text, s]));
+    let checked = 0;
+    let impure = 0;
+    for (const s of l.sentences) {
+      if ((byRule.get(s.g) || 0) < 4) continue;   // servono almeno tre altri esempi
+      checked++;
+      const choice = Ex.buildChoice(s, l, `${s.id}|0`, 'produce');
+      const wrong = choice.options.filter((_, i) => i !== choice.correct);
+      if (!wrong.every((t) => byText.get(t)?.g === s.g)) impure++;
+    }
+    expect(impure === 0, `[${l.code}] ${impure} frasi su ${checked} hanno distrattori di un'altra regola`);
+    ok(`[${l.code}] ${checked} frasi con abbastanza esempi: i tre distrattori vengono tutti dalla stessa regola`);
+  }
 
   // stesso seme, stesso esercizio: niente sorprese fra un render e l'altro
   const s0 = lang.sentences[3];
@@ -822,6 +883,80 @@ for (const lang of LANGS) {
   expect(empties === 0, `in venti giorni la coda si è svuotata ${empties} volte`);
   expect(done.doneCount >= 3, `in venti giorni il percorso ha chiuso solo ${done.doneCount} unità`);
   ok(`venti giorni di risposte giuste chiudono ${done.doneCount} unità senza mai lasciare la coda vuota`);
+}
+
+/* ------------------------- deposito su questo telefono ------------------- */
+
+console.log('');
+console.log('[store] il deposito su questo dispositivo');
+{
+  /* store.js parla con localStorage, che in Node non c'e': se ne mette uno
+   * finto, con l'interruttore per far finire lo spazio a comando. */
+  const mem = new Map();
+  let full = false;
+  globalThis.localStorage = {
+    getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+    setItem: (k, v) => {
+      if (full) {
+        const e = new Error('spazio esaurito');
+        e.name = 'QuotaExceededError';
+        throw e;
+      }
+      mem.set(k, String(v));
+    },
+    removeItem: (k) => mem.delete(k),
+  };
+  // stato di prima della migrazione: i pesi FSRS come impostazione globale
+  mem.set('frasi/v1', JSON.stringify({ v: 1, lang: 'de', settings: { w: new Array(19).fill(1) }, decks: {} }));
+
+  const Store = await import('../assets/js/store.js');
+
+  expect(Store.getSettings().w === undefined, 'i vecchi pesi globali sopravvivono alla migrazione');
+  ok('i pesi FSRS globali di prima vengono buttati, non regalati a una lingua a caso');
+
+  Store.setLang('ru');
+  Store.setLang('de');
+  Store.setW(new Array(19).fill(2), 'de');
+  expect(Store.getW('de')?.[0] === 2, 'i pesi non finiscono nel mazzo');
+  expect(Store.getW('ru') === null, 'tarare il tedesco cambia anche i pesi del russo');
+  ok('i pesi tarati su una lingua restano in quella lingua');
+
+  const card = (id) => ({ id, s: 1, d: 5, state: 'review', reps: 1, due: 0, ivl: 1 });
+  const entry = (id, t, isNew = false) => ({ t, id, type: 'comp', g: 3, isNew, ivl: 1, ms: 1000, xp: 10, s: 1, d: 5 });
+
+  // una scrittura fallita deve restare segnata, non sparire in un catch vuoto
+  full = true;
+  Store.recordReview(card('a|comp'), entry('a|comp', 1000, true), 'de');
+  const err = Store.storageError();
+  expect(!!(err && err.quota), 'lo spazio esaurito non viene segnalato da nessuna parte');
+  ok("una scrittura fallita resta segnata: l'app puo' dirlo invece di continuare a vuoto");
+  full = false;
+  Store.recordReview(card('a|comp'), entry('a|comp', 2000), 'de');
+  expect(Store.storageError() === null, "l'allarme resta acceso dopo una scrittura riuscita");
+  ok('e si spegne appena la scrittura torna a funzionare');
+
+  /*
+   * Il taglio del registro: quello che resta dev'essere ANCORA UTILIZZABILE.
+   * Un taglio cronologico lascerebbe le carte piu' vecchie senza il loro primo
+   * ripasso, e Opt.replay() le scarta tutte: si perderebbero proprio le storie
+   * lunghe, che sono le uniche che servono a tarare il modello.
+   */
+  const fabbricato = [];
+  for (let c = 0; c < 700; c++) {
+    for (let j = 0; j < 10; j++) fabbricato.push(entry(`c${c}|comp`, 10000 + c * 10000 + j * 100, j === 0));
+  }
+  Store.withDeck((deck) => { deck.log = fabbricato; }, 'de');
+  Store.recordReview(card('nuova|comp'), entry('nuova|comp', 9000000, true), 'de');
+
+  const log = Store.getDeck('de').log;
+  expect(log.length < fabbricato.length, `il registro non e' stato tagliato (${log.length} voci)`);
+  const ids = new Set(log.map((e) => e.id));
+  const senzaInizio = [...ids].filter((id) => !log.some((e) => e.id === id && e.isNew));
+  expect(senzaInizio.length === 0, `${senzaInizio.length} carte sopravvivono senza il loro primo ripasso`);
+  const usabili = Opt.replay(log).length;
+  const conStoria = [...ids].filter((id) => log.filter((e) => e.id === id).length > 1).length;
+  expect(usabili === conStoria, `dopo il taglio l'ottimizzatore usa ${usabili} storie su ${conStoria}`);
+  ok(`il registro tagliato da ${fabbricato.length} a ${log.length} voci resta utilizzabile per intero (${usabili} storie)`);
 }
 
 console.log(`\n${errors ? `${errors} problemi su ${checks} controlli` : `tutto a posto (${checks} controlli)`}`);
