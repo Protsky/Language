@@ -86,6 +86,18 @@ Non erano tappe, erano cose rotte. Chi scrive la prossima tappa deve sapere che:
 - **`Store.saveCard` e `Store.logReview` non esistono più**: una risposta è una
   scrittura sola, `Store.recordReview(card, entry)`.
 
+## Fuori dalle tappe: la voce, i settori, la lunghezza (29/08/2026)
+
+- **Le frasi sono incise**, non sintetizzate sul momento: `tools/voci.py` le
+  produce con una voce neurale e salva i tempi di ogni parola. Chi aggiunge
+  frasi al corpus deve rilanciarlo, altrimenti quelle nuove parlano con la voce
+  del telefono. Rifà solo le frasi cambiate.
+- **I settori sono dodici** e non più sei. Aggiungerne uno senza frasi che ci
+  stiano dentro fa danno: chi lo sceglie ottiene meno di chi non sceglie niente.
+- **La lunghezza ha un tetto per livello** (6/7/8/9 parole), controllato dal
+  validatore. Non è una preferenza: una frase che non entra nella memoria di
+  lavoro si impara a pezzi, cioè non si impara.
+
 ## Idee tenute in caldo
 
 - Modo "conversazione": due o tre frasi collegate invece di frasi isolate.
@@ -101,9 +113,13 @@ frasi che nessuno dice. La priorità è la base (A1-A2) e la giornata vera.
 - [x] Tedesco — 211 frasi, 38/38 situazioni quotidiane coperte.
 - [x] Russo — 185 frasi, 38/38.
 - [x] Inglese — 232 frasi, 38/38.
-- [ ] Svizzero tedesco — 115 frasi, 24/38. Mancano: il conto, taglie e vestiti,
-      albergo, telefono, internet, banca, bere, sveglia, pulizie, studio, sport,
-      quantità, opinioni, appuntamenti.
-- [ ] Spagnolo — 120 frasi, 27/38. Mancano: salutare, come stai, il conto, fare
-      la spesa, taglie e vestiti, telefono, email, banca, tempo libero, pulizie,
-      sport.
+- [x] Svizzero tedesco — 162 frasi, 38/38. Le 14 situazioni che mancavano sono
+      state coperte il 29/08/2026 (+47 frasi).
+- [x] Spagnolo — 184 frasi, 38/38. Le 11 situazioni che mancavano sono state
+      coperte il 29/08/2026 (+64 frasi).
+
+Adesso tutte e cinque le lingue coprono le 38 situazioni. Il lavoro che resta
+non è più copertura ma **profondità**: tedesco, russo e inglese hanno ancora
+punti grammaticali con un solo esempio, e i settori nuovi (casa, cibo, acquisti,
+persone, tempo libero, soldi) sono popolati solo in spagnolo e in dialetto —
+nelle altre tre le frasi vanno ancora ripassate e ritaggate una per una.

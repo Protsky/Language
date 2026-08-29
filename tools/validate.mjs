@@ -25,6 +25,25 @@ const ok = (label) => { checks++; console.log(`  ✓ ${label}`); };
 const expect = (cond, msg) => { checks++; if (!cond) fail(msg); };
 
 const DOMAIN_IDS = DOMAINS.map((d) => d.id);
+
+/*
+ * QUANTO PUO' ESSERE LUNGA UNA FRASE, livello per livello.
+ *
+ * Il tetto non e' una preferenza estetica: una frase si studia perche' entra
+ * tutta insieme nella memoria di lavoro (Miller 1956, 4±1 blocchi), e una che
+ * non ci entra si impara a pezzi, cioe' non si impara. Ad A1 una frase lunga
+ * non e' piu' difficile: e' sbagliata, perche' chi e' ad A1 non ha ancora i
+ * blocchi con cui accorparla.
+ *
+ * Il tetto sale col livello perche' certe strutture non stanno in meno: un
+ * periodo ipotetico ha due proposizioni e non si puo' mostrare con una. Nove
+ * parole e' il massimo assoluto, e ci arrivano solo quelle.
+ *
+ * Prima era una finestra sola, 2-12 per tutti, e nessuna frase ci arrivava
+ * vicino: il limite non limitava niente. Adesso il corpus e' misurato contro
+ * quello che l'app dichiara di fare.
+ */
+const LIMITE = { A1: 6, A2: 7, B1: 8, B2: 9, C1: 9, C2: 9 };
 const DAY = 86400000;
 
 /* ------------------------------- corpus -------------------------------- */
@@ -52,7 +71,9 @@ for (const lang of LANGS) {
     if (!lang.bridge && s.bridge) fail(`${tag}: riga di riscontro su una lingua che non la dichiara`);
     for (const d of s.dom) if (!DOMAIN_IDS.includes(d)) fail(`${tag}: settore sconosciuto (${d})`);
     const words = s.text.split(/\s+/).length;
-    if (words < 2 || words > 12) fail(`${tag}: ${words} parole, fuori dalla finestra 2-12`);
+    if (words < 2 || words > LIMITE[s.lv]) {
+      fail(`${tag}: ${words} parole, il limite di ${s.lv} è ${LIMITE[s.lv]}`);
+    }
   }
   ok(`${lang.sentences.length} frasi coerenti${lang.bridge ? `, tutte con la riga "${lang.bridge.toLowerCase()}"` : ''}`);
 
@@ -706,7 +727,7 @@ console.log('\n[corpus] frasi facili e quotidiane');
  * man mano che le altre vengono completate, e non deve mai scendere. */
 const SIT_FLOOR = { de: 38, ru: 38, en: 38, gsw: 24, es: 27 };
 /* Ad A1 una frase lunga non è difficile: è sbagliata. */
-const MAX_WORDS = { A1: 7, A2: 9 };
+const MAX_WORDS = { A1: 6, A2: 7 };
 
 for (const lang of LANGS) {
   const easy = lang.sentences.filter((s) => s.lv === 'A1' || s.lv === 'A2');
@@ -957,6 +978,36 @@ console.log('[store] il deposito su questo dispositivo');
   const conStoria = [...ids].filter((id) => log.filter((e) => e.id === id).length > 1).length;
   expect(usabili === conStoria, `dopo il taglio l'ottimizzatore usa ${usabili} storie su ${conStoria}`);
   ok(`il registro tagliato da ${fabbricato.length} a ${log.length} voci resta utilizzabile per intero (${usabili} storie)`);
+}
+
+/* ---------------------------- la voce incisa ---------------------------- */
+
+console.log('');
+console.log('[voce] le frasi incise');
+{
+  /*
+   * Il corpus e l'audio possono scollarsi in un modo solo: si aggiungono frasi
+   * e non si rilancia `tools/voci.py`. Non e' un guasto rumoroso — quelle frasi
+   * parlano con la voce del telefono e tutto il resto funziona — quindi lo dice
+   * il validatore, che e' il posto dove le cose silenziose si sentono.
+   */
+  const { readFileSync, existsSync } = await import('node:fs');
+  for (const lang of LANGS) {
+    const file = new URL(`../assets/audio/${lang.code}/tempi.json`, import.meta.url);
+    if (!existsSync(file)) {
+      console.log(`  · [${lang.code}] nessuna frase incisa: si usa la voce del dispositivo`);
+      continue;
+    }
+    const idx = JSON.parse(readFileSync(file, 'utf8'));
+    const mancanti = lang.sentences.filter((s) => !idx.frasi[s.id]);
+    expect(mancanti.length === 0,
+      `[${lang.code}] ${mancanti.length} frasi senza incisione (${mancanti.slice(0, 3).map((s) => s.id).join(', ')}): rilancia tools/voci.py`);
+    const senzaTempi = Object.values(idx.frasi).filter((v) => !v.p).length;
+    const orfane = Object.keys(idx.frasi).filter((id) => !lang.sentences.some((s) => s.id === id));
+    expect(orfane.length === 0, `[${lang.code}] ${orfane.length} incisioni di frasi che non esistono piu'`);
+    ok(`[${lang.code}] ${lang.sentences.length} frasi incise con ${idx.voce}`
+      + (senzaTempi ? `, ${senzaTempi} senza tempi per parola` : ', tutte con i tempi per parola'));
+  }
 }
 
 console.log(`\n${errors ? `${errors} problemi su ${checks} controlli` : `tutto a posto (${checks} controlli)`}`);

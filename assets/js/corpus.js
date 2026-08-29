@@ -17,9 +17,28 @@ import { ES } from './corpus-es.js';
 
 export const LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 
-/** Settori: pesano la scelta delle frasi nuove, non le nascondono. */
+/*
+ * Settori: pesano la scelta delle frasi nuove, non le nascondono.
+ *
+ * Perche' dodici e non sei. Con sei, «vita quotidiana» era un sacco: dentro ci
+ * stavano il conto al ristorante, la lavatrice, i suoceri e la partita, cioe'
+ * situazioni che non hanno una parola in comune. Chi sceglieva un settore
+ * sceglieva quasi sempre quello, e sceglierlo non voleva dire niente.
+ *
+ * Il criterio per aggiungerne uno non e' che esista la categoria: e' che
+ * esistano abbastanza frasi che ci stanno dentro, in ogni lingua. Un settore
+ * vuoto non e' neutro — chi lo sceglie ottiene meno di chi non sceglie niente,
+ * perche' il punteggio smette di preferire qualunque cosa. Prima di aggiungere
+ * il tredicesimo si guarda `node tools/corpus-review.mjs`, che li conta.
+ */
 export const DOMAINS = [
   { id: 'generale', label: 'Vita quotidiana', icon: '☕' },
+  { id: 'casa', label: 'Casa e faccende', icon: '🏠' },
+  { id: 'cibo', label: 'Cibo e ristorante', icon: '🍽️' },
+  { id: 'acquisti', label: 'Spesa e acquisti', icon: '🛒' },
+  { id: 'persone', label: 'Amici e famiglia', icon: '👥' },
+  { id: 'tempolibero', label: 'Tempo libero e sport', icon: '⚽' },
+  { id: 'soldi', label: 'Soldi e burocrazia', icon: '💶' },
   { id: 'lavoro', label: 'Lavoro e ufficio', icon: '💼' },
   { id: 'viaggi', label: 'Viaggi', icon: '✈️' },
   { id: 'tecnologia', label: 'Tecnologia', icon: '💻' },

@@ -127,10 +127,10 @@ const RAW = [
   ['a2-39', 'A2', 'Он*а вчер*а *ездила в Москв*у.', 'Ieri è andata a Mosca.', 'verbi di moto', '*ездила', ['viaggi'], '*ездить è il moto con ritorno; в + accusativo perché c’è una direzione.'],
   ['a2-40', 'A2', 'Я заб*ыла ключ*и д*ома.', 'Ho dimenticato le chiavi a casa.', 'passato', 'заб*ыла', ['generale'], 'Al passato il verbo concorda col genere: заб*ыла una donna, заб*ыл un uomo.'],
   ['a2-41', 'A2', 'Мо*и род*ители жив*ут в Ит*алии.', 'I miei genitori vivono in Italia.', 'prepositivo', 'в Ит*алии', ['generale'], 'в + prepositivo per lo stato: Ит*алия diventa в Ит*алии, con la -и finale.'],
-  ['a2-42', 'A2', 'Я хож*у в спортз*ал два р*аза в нед*елю.', 'Vado in palestra due volte a settimana.', 'numerali', 'два р*аза', ['salute'], 'Dopo два il sostantivo va al genitivo singolare: два р*аза, non два раз.'],
+  ['a2-42', 'A2', 'Я хож*у туд*а два р*аза в нед*елю.', 'Ci vado due volte a settimana.', 'numerali', 'два р*аза', ['salute'], 'Dopo два il sostantivo va al genitivo singolare: два р*аза, non два раз.'],
   /* ------------------------------- B1 ------------------------------- */
   ['b1-01', 'B1', 'Я уж*е по*ел, когд*а он*а пришл*а.', 'Avevo già mangiato quando è arrivata.', 'aspetto del verbo', 'по*ел', ['generale'], 'Il russo non ha il trapassato: bastano due perfettivi e уж*е.'],
-  ['b1-02', 'B1', '*Если бы у мен*я б*ыло вр*емя, я бы пут*ешествовал.', 'Se avessi tempo, viaggerei.', 'condizionale con бы', 'бы', ['viaggi'], 'Un solo modo per tutte le ipotesi: passato + бы, in tutte e due le parti.'],
+  ['b1-02', 'B1', '*Если бы б*ыло вр*емя, я бы пут*ешествовал.', 'Se avessi tempo, viaggerei.', 'condizionale con бы', 'бы', ['viaggi'], 'Un solo modo per tutte le ipotesi: passato + бы, in tutte e due le parti.'],
   ['b1-03', 'B1', 'Я бы л*учше ост*ался д*ома.', 'Preferirei restare a casa.', 'condizionale con бы', 'бы л*учше', ['generale'], 'бы attenua: senza, ост*ался sarebbe un fatto compiuto.'],
   ['b1-04', 'B1', 'Отчёт был напис*ан вчер*а.', 'Il report è stato scritto ieri.', 'participi', 'напис*ан', ['lavoro'], 'Participio passivo breve: concorda col soggetto come un aggettivo.'],
   ['b1-05', 'B1', 'Пробл*ему сейч*ас изуч*ают.', 'Il problema è in esame.', 'costruzioni impersonali', 'изуч*ают', ['tecnologia'], 'Terza plurale senza soggetto: il modo russo di dire il passivo.'],

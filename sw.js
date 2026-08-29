@@ -1,5 +1,18 @@
 /* Service worker: l'app resta utilizzabile offline dopo la prima visita. */
-const CACHE = 'frasi-v19';
+const CACHE = 'frasi-v20';
+
+/*
+ * L'audio inciso sta in una cache SUA, e il numero di versione non la tocca.
+ *
+ * Sono 16 MB: buttarli a ogni pubblicazione vorrebbe dire riscaricarli, e chi
+ * studia in giro li riscaricherebbe col telefono. Il guscio dell'app cambia
+ * spesso, le frasi incise quasi mai — sono due cicli di vita diversi e vogliono
+ * due cache diverse. Non entrano nemmeno nell'elenco qui sotto: precaricarne
+ * 863 all'installazione bloccherebbe il primo avvio per minuti, mentre servono
+ * una alla volta e restano dopo il primo ascolto.
+ */
+const CACHE_AUDIO = 'frasi-audio';
+const isAudio = (url) => url.pathname.includes('/assets/audio/');
 
 const ASSETS = [
   './',
@@ -18,6 +31,7 @@ const ASSETS = [
   'assets/js/corpus-ru.js',
   'assets/js/fsrs.js',
   'assets/js/goal.js',
+  'assets/js/incisa.js',
   'assets/js/irt.js',
   'assets/js/optimizer.js',
   'assets/js/scheduler.js',
@@ -54,26 +68,37 @@ self.addEventListener('message', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys
+        .filter((k) => k !== CACHE && k !== CACHE_AUDIO)
+        .map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-  if (request.method !== 'GET' || new URL(request.url).origin !== self.location.origin) return;
+  const url = new URL(request.url);
+  if (request.method !== 'GET' || url.origin !== self.location.origin) return;
+
+  const dove = isAudio(url) ? CACHE_AUDIO : CACHE;
 
   event.respondWith(
     caches.match(request).then((cached) => {
+      /* Una frase incisa non cambia mai senza cambiare anche la frase: quando
+       * c'è, si serve e basta. Chiedere ogni volta al server se è cambiata
+       * costerebbe una richiesta per ogni ascolto, che è il contrario del
+       * motivo per cui l'audio sta qui. */
+      if (cached && isAudio(url)) return cached;
+
       const network = fetch(request)
         .then((response) => {
           if (response.ok) {
             const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put(request, copy));
+            caches.open(dove).then((cache) => cache.put(request, copy));
           }
           return response;
         })
-        .catch(() => cached || caches.match('index.html'));
+        .catch(() => cached || (isAudio(url) ? undefined : caches.match('index.html')));
       return cached || network;
     }),
   );

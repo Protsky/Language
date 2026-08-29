@@ -183,6 +183,25 @@ tocchi, perché su un telefono il passaggio del mouse non esiste. Nessun grafico
 ha due scale sullo stesso asse: dove servono due grandezze diverse (il prezzo
 della ritenzione) ci sono due grafici uno sotto l'altro.
 
+## I settori, e perché sono dodici
+
+In *Impostazioni* si sceglie da dove pescare le frasi nuove: vita quotidiana,
+casa e faccende, cibo e ristorante, spesa e acquisti, amici e famiglia, tempo
+libero e sport, soldi e burocrazia, lavoro, viaggi, tecnologia, salute, studio
+e ricerca. Il settore **pesa** la scelta, non nasconde niente: una frase fuori
+settore può ancora uscire, vale solo di meno.
+
+Erano sei, e «vita quotidiana» era un sacco: dentro ci stavano il conto al
+ristorante, la lavatrice, i suoceri e la partita — situazioni che non hanno una
+parola in comune. Chi sceglieva un settore sceglieva quasi sempre quello, e
+sceglierlo non voleva dire niente.
+
+La regola per aggiungerne un altro non è che la categoria esista: è che
+esistano abbastanza frasi che ci stanno dentro, **in ogni lingua**. Un settore
+vuoto non è neutro — chi lo sceglie ottiene meno di chi non sceglie niente,
+perché il punteggio smette di preferire qualunque cosa. `corpus-review.mjs` li
+conta per livello, ed è lì che si guarda prima di aggiungere il tredicesimo.
+
 ## Il percorso
 
 Le frasi non sono una coda infinita: stanno in **unità da quattro a dieci
@@ -388,15 +407,35 @@ Due cose che rendono la scelta difendibile invece che comoda:
 | Lingua | Frasi | di cui A1-A2 | Situazioni quotidiane | Item del test |
 | --- | --- | --- | --- | --- |
 | 🇩🇪 Tedesco | 211 | 101 | 38/38 | 44 |
-| 🇨🇭 Svizzero tedesco | 115 | 50 | 24/38 | 34 |
+| 🇨🇭 Svizzero tedesco | 162 | 89 | 38/38 | 34 |
 | 🇷🇺 Russo | 185 | 95 | 38/38 | 40 |
 | 🇬🇧 Inglese | 232 | 107 | 38/38 | 48 |
-| 🇪🇸 Spagnolo | 120 | 50 | 27/38 | 38 |
+| 🇪🇸 Spagnolo | 184 | 100 | 38/38 | 38 |
 
 Tutte le frasi sono scritte per italofoni: la nota di ogni frase spiega proprio
 il punto dove l'italiano ci fa sbagliare (la posizione del verbo tedesco,
 `must` contro `have to`, `ser` contro `estar`, il congiuntivo dopo `cuando`).
 Media di sei parole per frase.
+
+### Quanto può essere lunga una frase
+
+| | A1 | A2 | B1 | B2-C2 |
+| --- | --- | --- | --- | --- |
+| massimo di parole | 6 | 7 | 8 | 9 |
+
+Non è una preferenza estetica. Una frase si studia perché entra tutta insieme
+nella memoria di lavoro (Miller 1956, 4±1 blocchi); una che non ci entra si
+impara a pezzi, cioè non si impara. Ad A1 una frase lunga non è più difficile:
+è sbagliata, perché chi è ad A1 non ha ancora i blocchi con cui accorparla.
+
+Il tetto sale col livello perché certe strutture non stanno in meno — un
+periodo ipotetico ha due proposizioni e non si può mostrare con una — e nove
+parole è il massimo assoluto: ci arrivano solo quelle.
+
+Prima il limite era una finestra sola, 2-12 parole per tutti, e nessuna frase
+ci arrivava neanche vicino: un limite che non limita niente non è un limite.
+Con il tetto per livello sette frasi sono risultate fuori e sono state
+riscritte più corte; la mediana del corpus resta 5 parole.
 
 ### Come si allarga il corpus, e come si evita di riempirlo di niente
 
@@ -542,21 +581,62 @@ anche i privati ma dietro autenticazione.
 2. Apri l'indirizzo in Safari.
 3. *Condividi ▸ Aggiungi a Home*: da lì parte a schermo intero e funziona offline.
 
-### La voce
+### La voce: incisa, non sintetizzata sul momento
 
-La voce sintetica usa `speechSynthesis` del sistema: su iOS le voci tedesca,
-russa, inglese e spagnola sono già installate.
+Tutte e 974 le frasi del corpus sono **incise una per una** con una voce
+neurale, e servite come file. Non è una comodità: è la sola risposta al motivo
+per cui la voce non era buona in nessuna lingua.
 
-Ogni lingua ha il proprio **ritmo**, perché non si leggono tutte alla stessa
-velocità: il russo sta al 72% della velocità impostata (a ritmo pieno, con le
-vocali ridotte, è illeggibile per chi comincia), tedesco e svizzero tedesco
-all'85%, inglese e spagnolo al 95%. Sopra c'è il moltiplicatore scelto da te.
+`speechSynthesis` legge con le voci installate sul dispositivo, e quelle
+cambiano da telefono a telefono. Su iPhone, per il russo, Safari espone **una
+voce sola** — la Milena compatta — e le versioni migliorate scaricate dal
+sistema al browser non arrivano mai. Regolare velocità e tono non serviva a
+niente: la voce era quella. Il corpus però è un insieme *chiuso* di frasi
+corte, e inciderlo una volta risolve tre cose insieme:
 
-Durante lo studio ogni frase ha due bottoni: **🔊 Ascolta** a velocità normale e
-**🐢 Lento**, che scende ancora di un terzo e separa le parole una dall'altra per
-costringere la sintesi a staccarle.
+- la voce è **la stessa su ogni dispositivo**, e non dipende più da cosa c'è
+  installato;
+- si sente **senza rete**, perché i file finiscono nella cache dell'app;
+- mentre studi **non parte nessuna richiesta verso nessuno**: la dipendenza da
+  un servizio esterno si sposta da chi studia a chi pubblica.
 
-### Voce online, quando quella del telefono non basta
+| | voce | frasi | peso |
+| --- | --- | --- | --- |
+| 🇩🇪 Tedesco | `de-DE-KatjaNeural` | 211 | 3.4 MB |
+| 🇨🇭 Svizzero tedesco | `de-CH-LeniNeural` | 162 | 2.4 MB |
+| 🇷🇺 Russo | `ru-RU-SvetlanaNeural` | 185 | 2.9 MB |
+| 🇬🇧 Inglese | `en-GB-SoniaNeural` | 232 | 3.1 MB |
+| 🇪🇸 Spagnolo | `es-ES-ElviraNeural` | 184 | 2.7 MB |
+
+Si incidono con `tools/voci.py`, che rifà **solo le frasi cambiate**: si
+riconosce dall'impronta di frase e voce, quindi aggiungerne dieci costa dieci
+incisioni, non mille.
+
+**Da dove viene la voce, per intero.** Sono le voci neurali di Microsoft, prese
+dall'endpoint che usa la lettura ad alta voce di Edge. Non è un'API documentata
+per questo uso, e i file restano dentro il repo: è una scelta ragionevole per
+un'app personale e **non lo sarebbe per una pubblicata**. Il resto del
+programma non ne dipende — la sorgente è una tabella di sei righe in
+`tools/voci.py`, e passare a un motore locale e libero (Piper) vuol dire
+cambiare quella e rilanciare lo script.
+
+**Il ritmo.** Alla voce incisa *non* si applica il moltiplicatore per lingua
+(il 72% del russo): quello esisteva per rimediare a una sintesi che a velocità
+piena diventava illeggibile, non perché il russo vada letto lento in assoluto.
+Su una voce registrata a ritmo naturale sarebbe un handicap raddoppiato, e
+studiare per mesi su un parlato rallentato prepara a un parlato che nessuno fa.
+Resta la velocità scelta nelle impostazioni, e resta il **🐢 Lento**, che
+adesso rallenta *senza abbassare il tono* (`preservesPitch`): un rallentamento
+che cala di tono non è la stessa lingua più lenta, è un'altra lingua.
+
+**L'accento tonico del russo non entra nel sintetizzatore.** È un aiuto per chi
+legge, non ortografia. Misurato: dandolo in pasto a `ru-RU-SvetlanaNeural`
+l'audio si allunga di quasi un secondo su tre parole e gli attacchi slittano —
+il motore ci inciampa invece di usarlo. Si legge la frase senza.
+
+### Voce del telefono e voce online, adesso di riserva
+
+Restano tutte e due, e servono solo dove una frase non fosse ancora incisa.
 
 `speechSynthesis` legge con le voci installate sul dispositivo, e su iPhone
 Safari per il russo ne espone **una sola**: la Milena compatta. Le versioni
@@ -598,25 +678,38 @@ questo sì, per davvero, perché nell'ambiente di prova la rete non c'è — che
 **il ripiego funzioni**: senza connessione l'app lo dice e continua con la voce
 del telefono, senza errori.
 
-### Ascolto guidato
+### Ascolto guidato, sui tempi veri
 
-Vale con qualunque voce, ed è complementare:
+Insieme all'audio il sintetizzatore consegna **l'attacco e la durata di ogni
+parola**, e quei numeri vengono salvati accanto ai file. È la parte che non si
+sente ed è quella che vale di più:
 
-- **👣 Parola per parola** legge una parola alla volta, ognuna come frase a sé,
-  con una pausa vera in mezzo, e **illumina la parola mentre la pronuncia**;
-- **toccando una parola qualsiasi** della frase si sente solo quella, quante
-  volte si vuole.
+- **👣 Parola per parola** suona la frase **intera**, rallentata, e illumina la
+  parola che sta suonando in quel momento;
+- **toccando una parola qualsiasi** si sente solo quella, ritagliata dallo
+  stesso file: arriva con l'intonazione che ha *dentro* la frase.
 
-Su una lingua nuova — a maggior ragione in un altro alfabeto — metà del
-problema non è come suona la voce: è la **segmentazione**, cioè sentire dove
-finisce una parola e comincia l'altra dentro una frase letta di fila. Un canale
-doppio, che si sente e si vede allo stesso tempo, lega il suono alla forma
-scritta.
+Prima erano tante sintesi separate, una per parola, e si sentiva: una parola
+pronunciata da sola ha l'intonazione di una parola sola, e ascoltarne sei di
+fila non insegna dove finisce l'una e comincia l'altra dentro il parlato vero —
+che è tutto il punto dell'esercizio. Su una lingua nuova, a maggior ragione in
+un altro alfabeto, metà del problema non è come suona la voce: è la
+**segmentazione**. Un canale doppio, che si sente e si vede insieme, lega il
+suono alla forma scritta.
 
-Restano regolabili velocità (con il moltiplicatore per lingua) e **tono**.
+Il ritaglio si ferma controllando l'orologio **a ogni fotogramma** e non
+sull'evento `timeupdate`, che arriva quattro volte al secondo: una parola dura
+175 millisecondi, e fermandosi su `timeupdate` si sentirebbe anche quella dopo,
+cioè si sbaglierebbe proprio la cosa che il ritaglio serve a fare.
 
- Per il dialetto non esiste una voce
-sintetica: si ripiega sul tedesco svizzero standard.
+**Dove i tempi non ci sono.** Su 974 frasi, 22 tornano dal motore con un segno
+solo per tutta la frase invece che uno per parola — sono quasi tutte in
+dialetto, e `de-CH-LeniNeural` lo fa in modo ripetibile sulle frasi che
+cominciano con «Das». Lì l'audio c'è lo stesso ed è l'illuminazione che si
+spegne: meglio nessuna evidenziazione che una che illumina la parola sbagliata.
+
+Per il dialetto non esiste una voce sintetica vera: si usa il tedesco svizzero
+standard, che va preso come indicazione e non come modello di pronuncia.
 
 ## Leggibilità, e chi non guarda lo schermo
 
@@ -648,6 +741,7 @@ quando ha finito la carta che ha in mano. Il numero di versione della cache in
 ```bash
 node tools/validate.mjs     # corpus, motori, percorso, esercizi, taratura, deposito, voce: 450 controlli
 node tools/corpus-review.mjs       # che cosa manca al corpus, lingua per lingua
+tools/.venv/Scripts/python tools/voci.py   # incide le frasi nuove (solo quelle)
 node tools/smoke.mjs        # 127 controlli end-to-end in Chromium (serve playwright)
 python3 tools/make-icons.py        # rigenera le icone PNG
 ```

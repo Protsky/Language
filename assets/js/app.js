@@ -21,6 +21,7 @@ import * as Ex from './exercises.js';
 import * as Speech from './speech.js';
 import * as Voices from './voices.js';
 import * as Tts from './tts.js';
+import * as Incisa from './incisa.js';
 import * as Sfx from './sfx.js';
 import * as Goal from './goal.js';
 
@@ -140,6 +141,36 @@ function speakLocal(text, { slow = false } = {}) {
 }
 
 /*
+ * L'indice della voce incisa si chiede una volta per lingua. Finché non è
+ * arrivato si parla con la voce del dispositivo: non c'è niente da aspettare,
+ * e chi apre l'app in aereo la sente lo stesso.
+ */
+let incisaPer = null;
+function ensureIncisa() {
+  if (!lang || incisaPer === lang.code) return;
+  incisaPer = lang.code;
+  Incisa.load(lang.code).then((idx) => {
+    // le impostazioni dichiarano quale voce si sta usando: vanno rifatte
+    if (idx && screen === 'settings') render();
+  });
+}
+
+/*
+ * Quanto veloce va la voce incisa.
+ *
+ * NON si applica il moltiplicatore per lingua (`lang.rate`, 0.72 sul russo):
+ * quello esisteva per rimediare a una sintesi che a velocità piena diventava
+ * illeggibile, non perché il russo vada letto lento in assoluto. Su una voce
+ * neurale registrata a ritmo naturale sarebbe un handicap raddoppiato, e
+ * studiare per mesi su un parlato rallentato prepara a un parlato che nessuno
+ * fa. Resta la velocità scelta nelle impostazioni, e resta il 🐢.
+ */
+const rateIncisa = ({ slow }) => {
+  const base = Math.min(1.4, Math.max(0.6, settings().ttsRate ?? 1));
+  return slow ? base * 0.7 : base;
+};
+
+/*
  * Stato della voce online per la sessione in corso: al primo fallimento si
  * smette di provarci, così un endpoint lento non trasforma ogni ascolto in
  * un'attesa. Si riparte alla prossima apertura dell'app.
@@ -152,8 +183,20 @@ const wantsOnline = () =>
   && navigator.onLine !== false
   && onlineVoice !== 'failed';
 
-/** Dice una cosa e promette di dire quando ha finito, online o in locale. */
-async function say(text, { slow = false } = {}) {
+/**
+ * Dice una cosa e promette di dire quando ha finito.
+ *
+ * Tre canali in ordine di qualità: la frase incisa (una voce neurale, sempre la
+ * stessa su ogni telefono, e senza rete), la voce online, la voce del
+ * dispositivo. Ognuno cade su quello dopo senza far aspettare.
+ */
+async function say(text, { slow = false, sid = null } = {}) {
+  if (sid && Incisa.has(lang.code, sid)) {
+    try {
+      await Incisa.play(lang.code, sid, { rate: rateIncisa({ slow }) });
+      return;
+    } catch { /* file mancante o non caricato: si continua con gli altri */ }
+  }
   if (wantsOnline()) {
     try {
       await Tts.play(Tts.url(text, lang.locale, { slow }));
@@ -167,11 +210,11 @@ async function say(text, { slow = false } = {}) {
   await speakLocal(text, { slow });
 }
 
-function speak(text, { force = false, slow = false } = {}) {
+function speak(text, { force = false, slow = false, sid = null } = {}) {
   if (!lang) return Promise.resolve();
   if (!force && !settings().tts) return Promise.resolve();
   stopSpeaking();
-  const promise = say(text, { slow });
+  const promise = say(text, { slow, sid });
   if (session) session.saying = promise;   // l'avanzamento automatico la aspetta
   return promise;
 }
@@ -185,6 +228,7 @@ function stopSpeaking() {
     guided = null;
   }
   Tts.stop();
+  Incisa.stop();
   try { window.speechSynthesis.cancel(); } catch { /* niente da fermare */ }
 }
 
@@ -198,9 +242,72 @@ function stopSpeaking() {
  * doppio canale (si sente e si vede allo stesso tempo) lega il suono alla
  * forma scritta, che in cirillico è metà del lavoro.
  */
-function speakGuided(root, text) {
+/** Confronto lasco fra una parola scritta e una parola segnata dal motore. */
+const nudo = (w) => w
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase()
+  .replace(/[^\p{L}\p{N}]/gu, '');
+
+/**
+ * Allinea le parole toccabili sullo schermo con i tempi consegnati dal motore.
+ * Restituisce null se non tornano: meglio nessuna illuminazione che una che
+ * illumina la parola sbagliata.
+ */
+function allinea(tokens, tempi) {
+  if (!tempi) return null;
+  const out = [];
+  let j = 0;
+  for (const el of tokens) {
+    const atteso = nudo(el.textContent);
+    // un token del cloze può coprire più parole: si consumano finché combacia
+    let preso = '';
+    const primo = j;
+    while (j < tempi.length && preso !== atteso) {
+      preso += nudo(tempi[j][2]);
+      j++;
+    }
+    if (preso !== atteso) return null;
+    out.push({ el, from: tempi[primo][0], to: tempi[j - 1][0] + tempi[j - 1][1] });
+  }
+  return j === tempi.length ? out : null;
+}
+
+function speakGuided(root, text, sid = null) {
   const tokens = [...root.querySelectorAll('[data-tok]')];
-  if (!tokens.length) return speak(text, { force: true, slow: true });
+  if (!tokens.length) return speak(text, { force: true, slow: true, sid });
+
+  /*
+   * Con la frase incisa non si legge una parola alla volta: si suona la frase
+   * INTERA, rallentata, e si illumina la parola che sta suonando in quel
+   * momento. La differenza non è di comodità — una parola sintetizzata da sola
+   * ha l'intonazione di una parola sola, e ascoltare sei parole isolate non
+   * insegna dove finisce l'una e comincia l'altra dentro il parlato vero, che
+   * è tutto il punto dell'esercizio.
+   */
+  const passi = allinea(tokens, sid ? Incisa.words(lang.code, sid) : null);
+  if (passi) {
+    stopSpeaking();
+    const state = { tokens, timer: null };
+    guided = state;
+    let acceso = -1;
+    Incisa.play(lang.code, sid, {
+      rate: rateIncisa({ slow: true }),
+      onTime: (t) => {
+        if (guided !== state) return;
+        const i = passi.findIndex((p) => t >= p.from && t < p.to);
+        if (i === acceso) return;
+        acceso = i;
+        tokens.forEach((el) => el.classList.remove('tok--on'));
+        if (i >= 0) passi[i].el.classList.add('tok--on');
+      },
+    }).catch(() => {}).then(() => {
+      if (guided !== state) return;
+      tokens.forEach((el) => el.classList.remove('tok--on'));
+      guided = null;
+    });
+    return;
+  }
 
   stopSpeaking();
   const words = tokens.map((el) => el.textContent);
@@ -221,6 +328,24 @@ function speakGuided(root, text) {
       guided = null;
     }
   })();
+}
+
+/**
+ * Un tocco su una parola ne fa risentire soltanto quella, ritagliata dal file
+ * della frase: la parola arriva con l'intonazione che ha DENTRO la frase, non
+ * con quella di una parola pronunciata da sola. Restituisce false se non si
+ * può, e chi chiama ripiega sulla sintesi.
+ */
+function sayWord(root, el, sentence) {
+  const passi = allinea([...root.querySelectorAll('[data-tok]')], Incisa.words(lang.code, sentence.id));
+  const passo = passi?.find((p) => p.el === el);
+  if (!passo) return false;
+  Incisa.play(lang.code, sentence.id, {
+    rate: rateIncisa({ slow: true }),
+    from: passo.from,
+    to: passo.to,
+  }).catch(() => {});
+  return true;
 }
 
 /** La frase come parole toccabili: un tocco legge solo quella. */
@@ -304,6 +429,7 @@ function render() {
     settings: paintSettings,
     science: paintScience,
   };
+  ensureIncisa();
   view.innerHTML = '';
   (painters[screen] || paintHome)();
   renderTabs();
@@ -1017,10 +1143,11 @@ function paintStudy() {
     foot.append(gradeBar(card));
   }
 
-  on(el, '[data-act="say"]', 'click', () => speak(sentence.text, { force: true }));
-  on(el, '[data-act="guided"]', 'click', () => speakGuided(body, sentence.text));
+  on(el, '[data-act="say"]', 'click', () => speak(sentence.text, { force: true, sid: sentence.id }));
+  on(el, '[data-act="guided"]', 'click', () => speakGuided(body, sentence.text, sentence.id));
   on(el, '[data-tok]', 'click', (e) => {
     stopSpeaking();
+    if (sayWord(body, e.currentTarget, sentence)) return;
     speak(e.currentTarget.textContent, { force: true, slow: true });
   });
   on(el, '[data-act="check"]', 'click', () => check());
@@ -1164,7 +1291,7 @@ function askComp(body, foot, sentence, done) {
         <p class="hint hint--big">${esc(sentence.it)}</p>
         ${done ? '' : '<p class="muted small">Come si dice?</p>'}
       </div>`));
-    if (done && !session.spoke.done) { session.spoke.done = true; speak(sentence.text); }
+    if (done && !session.spoke.done) { session.spoke.done = true; speak(sentence.text, { sid: sentence.id }); }
   } else {
     body.append(h(`
       <div class="stack center">
@@ -1173,7 +1300,7 @@ function askComp(body, foot, sentence, done) {
         ${done ? '' : '<p class="muted small">Quale traduzione è la sua?</p>'}
       </div>`));
     const phase = done ? 'done' : 'ask';
-    if (!session.spoke[phase]) { session.spoke[phase] = true; speak(sentence.text); }
+    if (!session.spoke[phase]) { session.spoke[phase] = true; speak(sentence.text, { sid: sentence.id }); }
   }
 
   const list = h(`
@@ -1284,7 +1411,7 @@ function askProd(body, foot, sentence, done) {
         <button class="btn btn--listen" data-act="say">🔊</button>
         <button class="btn btn--icon" data-act="guided">👣 Parola per parola</button>
       </div>`));
-    if (!session.spoke.ask) { session.spoke.ask = true; speak(sentence.text, { force: true }); }
+    if (!session.spoke.ask) { session.spoke.ask = true; speak(sentence.text, { force: true, sid: sentence.id }); }
   } else {
     body.append(h(`
       <div class="stack center">
@@ -1516,7 +1643,7 @@ function paintExplore() {
               <p class="row-item__i">${esc(s.it)}</p>
               <p class="row-item__g">${s.lv} · ${esc(s.g)}</p>
             </div>
-            <button class="icon-btn" data-say="${esc(s.text)}">🔊</button>
+            <button class="icon-btn" data-say="${s.id}" data-testo="${esc(s.text)}">🔊</button>
           </div>`).join('')}
       </div>
       ${rows.length > 120 ? '<p class="muted small center">Affina la ricerca per vedere le altre.</p>' : ''}
@@ -1533,7 +1660,7 @@ function paintExplore() {
   on(el, '[data-act="clear-g"]', 'click', () => { filter.g = ''; render(); });
   on(el, '[data-lv]', 'click', (e) => { filter.lv = e.currentTarget.dataset.lv; render(); });
   on(el, '[data-dom]', 'click', (e) => { filter.dom = e.currentTarget.dataset.dom; render(); });
-  on(el, '[data-say]', 'click', (e) => speak(e.currentTarget.dataset.say, { force: true }));
+  on(el, '[data-say]', 'click', (e) => speak(e.currentTarget.dataset.testo, { force: true, sid: e.currentTarget.dataset.say }));
   view.append(el);
 }
 
@@ -2026,8 +2153,9 @@ function paintSettings() {
 
       <div class="card card--flat">
         <div class="card__head"><b>Voce</b></div>
+        ${incisaRow()}
         ${onlineVoiceRow(cfg)}
-        <div class="card__head"><b>Voce del dispositivo</b><span class="muted small">di riserva</span></div>
+        <div class="card__head"><b>Voce del dispositivo</b><span class="muted small">ultima riserva</span></div>
         ${voiceChooser(cfg)}
         <label class="switch">
           <span>Dettare le risposte${Speech.supported ? '' : ' <em class="muted small">(non disponibile qui)</em>'}</span>
@@ -2110,7 +2238,8 @@ function paintSettings() {
   on(el, '[data-voice]', 'change', (e) => {
     const next = { ...(settings().voices || {}), [lang.code]: e.currentTarget.value };
     Store.setSetting('voices', next);
-    speak(lang.sentences.find((s) => s.lv === 'A1')?.text || 'Test', { force: true });
+    const prova = lang.sentences.find((s) => s.lv === 'A1');
+    speak(prova?.text || 'Test', { force: true, sid: prova?.id });
   });
   on(el, '[data-act="try-voice"]', 'click', () => {
     const sample = lang.sentences.find((s) => s.lv === 'A1');
@@ -2172,6 +2301,29 @@ async function testOnlineVoice() {
   stopSpeaking();
   await say(sample.text, {});
   if (screen === 'settings') render();
+}
+
+/**
+ * La voce incisa, dichiarata per nome.
+ *
+ * Serve a rispondere alla domanda che uno si fa dopo il primo ascolto: chi sta
+ * parlando, e da dove viene quella voce. Dirlo qui evita anche il malinteso
+ * peggiore — che l'app stia sintetizzando sul momento, e che quindi la voce
+ * dipenda dal telefono. Non dipende: e' la stessa per tutti, e c'e' anche
+ * senza rete.
+ */
+function incisaRow() {
+  const voce = Incisa.voiceName(lang.code);
+  if (!voce) {
+    return `
+      <p class="small muted">Per ${esc(lang.name.toLowerCase())} non ci sono ancora frasi incise:
+      si usa la voce del dispositivo. Si incidono con <code>tools/voci.py</code>.</p>`;
+  }
+  return `
+    <p class="small muted">Le frasi di ${esc(lang.name.toLowerCase())} sono <b>incise una per una</b>
+    con la voce neurale <b>${esc(voce)}</b>: è la stessa su ogni telefono, si sente anche senza rete,
+    e mentre studi non parte nessuna richiesta verso nessuno. Le due voci qui sotto restano come
+    riserva, per le frasi che non fossero ancora incise.</p>`;
 }
 
 /** Voce online: una sintesi neurale gratuita al posto di quella del telefono. */

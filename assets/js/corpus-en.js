@@ -79,11 +79,11 @@ const RAW = [
   ['a1-47', 'A1', 'I get up at seven.', 'Mi alzo alle sette.', 'phrasal verb', 'get up', ['generale'], 'get up è inseparabile: non si dice get me up per dire alzarsi.'],
   ['a1-48', 'A1', 'Can you call me later?', 'Mi puoi chiamare più tardi?', 'can / abilità', 'Can you', ['generale'], 'can + verbo alla base, senza to; could rende la richiesta più cortese.'],
   ['a1-49', 'A1', "I'll send you an email.", 'Ti mando una mail.', 'will / futuro', "I'll", ['lavoro'], 'will per una decisione presa sul momento; send regge due complementi.'],
-  ['a1-50', 'A1', 'Do you want to come with us?', 'Vuoi venire con noi?', 'gerundio e infinito', 'to come', ['generale'], 'want vuole sempre l’infinito con to: want to come, want to go.'],
+  ['a1-50', 'A1', 'Do you want to come?', 'Vuoi venire?', 'gerundio e infinito', 'to come', ['generale'], 'want vuole sempre l’infinito con to: want to come, want to go.'],
   ['a1-51', 'A1', 'I like watching films.', 'Mi piace guardare i film.', 'gerundio e infinito', 'watching', ['generale'], 'Dopo like ci vuole la forma in -ing quando si parla di un gusto generale.'],
   ['a1-52', 'A1', 'I have to do the laundry.', 'Devo fare il bucato.', 'modali di obbligo', 'have to', ['generale'], 'have to è l’obbligo che viene da fuori; must è la spinta di chi parla.'],
   ['a1-53', 'A1', 'I play football on Sundays.', 'Gioco a calcio la domenica.', 'preposizioni di tempo', 'on', ['generale'], 'on + giorno della settimana; al plurale indica l’abitudine, non un giorno solo.'],
-  ['a1-54', 'A1', 'The wifi password is on the table.', 'La password del wifi è sul tavolo.', 'preposizioni di luogo', 'on the', ['tecnologia'], 'on per una superficie, in per uno spazio chiuso, at per un punto.'],
+  ['a1-54', 'A1', 'The password is on the table.', 'La password è sul tavolo.', 'preposizioni di luogo', 'on the', ['tecnologia'], 'on per una superficie, in per uno spazio chiuso, at per un punto.'],
   ['a1-55', 'A1', 'I need to buy some milk.', 'Devo comprare del latte.', 'quantificatori', 'some', ['generale'], 'some per una quantità indefinita in frase affermativa; any in domanda e negazione.'],
   /* ------------------------------- A2 ------------------------------- */
   ['a2-01', 'A2', 'I went there last summer.', 'Ci sono andato la scorsa estate.', 'past simple', 'went', ['viaggi'], 'go ha passato irregolare went; last summer non vuole preposizione.'],
@@ -138,7 +138,7 @@ const RAW = [
   ['a2-49', 'A2', 'I usually clean the flat on Saturdays.', 'Di solito pulisco casa il sabato.', 'ordine delle parole', 'usually', ['generale'], 'Gli avverbi di frequenza stanno prima del verbo, ma dopo il verbo essere.'],
   ['a2-50', 'A2', 'The train has been delayed again.', 'Il treno è di nuovo in ritardo.', 'passivo', 'has been delayed', ['viaggi'], 'Passivo al present perfect: have been + participio passato.'],
   ['a2-51', 'A2', 'Would you like something to drink?', 'Vuoi qualcosa da bere?', 'gerundio e infinito', 'to drink', ['viaggi', 'generale'], 'would you like è l’offerta cortese; something to drink, con l’infinito.'],
-  ['a2-52', 'A2', 'I have been learning English for two years.', 'Studio inglese da due anni.', 'present perfect continuous', 'have been learning', ['accademico'], 'Azione cominciata nel passato e ancora in corso: l’italiano la dice al presente.'],
+  ['a2-52', 'A2', 'I have been learning English for years.', 'Studio inglese da anni.', 'present perfect continuous', 'have been learning', ['accademico'], 'Azione cominciata nel passato e ancora in corso: l’italiano la dice al presente.'],
   /* ------------------------------- B1 ------------------------------- */
   ['b1-01', 'B1', 'I have been working here since 2019.', 'Lavoro qui dal 2019.', 'present perfect continuous', 'have been working', ['lavoro'], "Il continuous insiste sulla durata dell'attività, ancora in corso."],
   ['b1-02', 'B1', 'She has already left the office.', "Ha già lasciato l'ufficio.", 'present perfect', 'already', ['lavoro'], 'already sta fra ausiliare e participio; yet va in fondo.'],
