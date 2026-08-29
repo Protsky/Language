@@ -118,8 +118,17 @@ frasi che nessuno dice. La priorità è la base (A1-A2) e la giornata vera.
 - [x] Spagnolo — 184 frasi, 38/38. Le 11 situazioni che mancavano sono state
       coperte il 29/08/2026 (+64 frasi).
 
-Adesso tutte e cinque le lingue coprono le 38 situazioni. Il lavoro che resta
-non è più copertura ma **profondità**: tedesco, russo e inglese hanno ancora
-punti grammaticali con un solo esempio, e i settori nuovi (casa, cibo, acquisti,
-persone, tempo libero, soldi) sono popolati solo in spagnolo e in dialetto —
-nelle altre tre le frasi vanno ancora ripassate e ritaggate una per una.
+- [x] Tedesco — 260 frasi. +49 il 29/08/2026 sui dodici punti grammaticali che
+      avevano un esempio solo o nessuno.
+- [x] Russo — 219 frasi. +34, stessa ragione.
+- [x] Inglese — 270 frasi. +38, stessa ragione.
+
+**1103 frasi in tutto.** Tutte e cinque le lingue coprono le 38 situazioni, e in
+nessuna resta un punto grammaticale con un esempio solo. I dodici settori sono
+popolati ovunque: le frasi già esistenti di tedesco, russo e inglese sono state
+rilette una per una e ritaggate a mano (179 cambiate), non a parole chiave.
+
+Quello che resta è di un altro tipo: **profondità ai livelli alti** (B2-C2 vive
+quasi solo di lavoro e accademico, e i settori quotidiani lì sono vuoti), e le
+frasi proprie, che restano l'unica cosa che fa durare il corpus oltre i due mesi
+di studio.

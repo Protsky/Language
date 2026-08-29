@@ -1,5 +1,5 @@
 /* Service worker: l'app resta utilizzabile offline dopo la prima visita. */
-const CACHE = 'frasi-v20';
+const CACHE = 'frasi-v21';
 
 /*
  * L'audio inciso sta in una cache SUA, e il numero di versione non la tocca.

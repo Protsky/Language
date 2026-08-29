@@ -196,6 +196,13 @@ ristorante, la lavatrice, i suoceri e la partita — situazioni che non hanno un
 parola in comune. Chi sceglieva un settore sceglieva quasi sempre quello, e
 sceglierlo non voleva dire niente.
 
+Adesso tutti e dodici sono popolati in tutte e cinque le lingue: le 111 frasi
+aggiunte a spagnolo e dialetto sono nate dentro i settori nuovi, e le 628 frasi
+già esistenti di tedesco, russo e inglese sono state rilette una per una e
+ritaggate a mano — 179 hanno cambiato settore. Non a parole chiave, di proposito:
+«Vado a camminare ogni giorno» sta in salute *e* in tempo libero, e nessun elenco
+di parole ci arriva.
+
 La regola per aggiungerne un altro non è che la categoria esista: è che
 esistano abbastanza frasi che ci stanno dentro, **in ogni lingua**. Un settore
 vuoto non è neutro — chi lo sceglie ottiene meno di chi non sceglie niente,
@@ -406,11 +413,16 @@ Due cose che rendono la scelta difendibile invece che comoda:
 
 | Lingua | Frasi | di cui A1-A2 | Situazioni quotidiane | Item del test |
 | --- | --- | --- | --- | --- |
-| 🇩🇪 Tedesco | 211 | 101 | 38/38 | 44 |
-| 🇨🇭 Svizzero tedesco | 162 | 89 | 38/38 | 34 |
-| 🇷🇺 Russo | 185 | 95 | 38/38 | 40 |
-| 🇬🇧 Inglese | 232 | 107 | 38/38 | 48 |
-| 🇪🇸 Spagnolo | 184 | 100 | 38/38 | 38 |
+| 🇩🇪 Tedesco | 260 | 140 | 38/38 | 44 |
+| 🇨🇭 Svizzero tedesco | 167 | 94 | 38/38 | 34 |
+| 🇷🇺 Russo | 219 | 124 | 38/38 | 40 |
+| 🇬🇧 Inglese | 270 | 135 | 38/38 | 48 |
+| 🇪🇸 Spagnolo | 187 | 103 | 38/38 | 38 |
+
+**1103 frasi**, tutte incise, tutte con almeno il 50% del corpus fra A1 e A2. In
+nessuna delle cinque lingue resta un punto grammaticale con un esempio solo: era
+il difetto che restava dopo la copertura delle situazioni, perché una regola
+vista una volta sola si impara come frase, non come regola.
 
 Tutte le frasi sono scritte per italofoni: la nota di ogni frase spiega proprio
 il punto dove l'italiano ci fa sbagliare (la posizione del verbo tedesco,
@@ -583,7 +595,7 @@ anche i privati ma dietro autenticazione.
 
 ### La voce: incisa, non sintetizzata sul momento
 
-Tutte e 974 le frasi del corpus sono **incise una per una** con una voce
+Tutte e 1103 le frasi del corpus sono **incise una per una** con una voce
 neurale, e servite come file. Non è una comodità: è la sola risposta al motivo
 per cui la voce non era buona in nessuna lingua.
 
@@ -602,11 +614,11 @@ corte, e inciderlo una volta risolve tre cose insieme:
 
 | | voce | frasi | peso |
 | --- | --- | --- | --- |
-| 🇩🇪 Tedesco | `de-DE-KatjaNeural` | 211 | 3.4 MB |
-| 🇨🇭 Svizzero tedesco | `de-CH-LeniNeural` | 162 | 2.4 MB |
-| 🇷🇺 Russo | `ru-RU-SvetlanaNeural` | 185 | 2.9 MB |
-| 🇬🇧 Inglese | `en-GB-SoniaNeural` | 232 | 3.1 MB |
-| 🇪🇸 Spagnolo | `es-ES-ElviraNeural` | 184 | 2.7 MB |
+| 🇩🇪 Tedesco | `de-DE-KatjaNeural` | 260 | 4.8 MB |
+| 🇨🇭 Svizzero tedesco | `de-CH-LeniNeural` | 167 | 3.0 MB |
+| 🇷🇺 Russo | `ru-RU-SvetlanaNeural` | 219 | 3.9 MB |
+| 🇬🇧 Inglese | `en-GB-SoniaNeural` | 270 | 4.2 MB |
+| 🇪🇸 Spagnolo | `es-ES-ElviraNeural` | 187 | 3.2 MB |
 
 Si incidono con `tools/voci.py`, che rifà **solo le frasi cambiate**: si
 riconosce dall'impronta di frase e voce, quindi aggiungerne dieci costa dieci
@@ -702,7 +714,7 @@ sull'evento `timeupdate`, che arriva quattro volte al secondo: una parola dura
 175 millisecondi, e fermandosi su `timeupdate` si sentirebbe anche quella dopo,
 cioè si sbaglierebbe proprio la cosa che il ritaglio serve a fare.
 
-**Dove i tempi non ci sono.** Su 974 frasi, 22 tornano dal motore con un segno
+**Dove i tempi non ci sono.** Su 1103 frasi, 22 tornano dal motore con un segno
 solo per tutta la frase invece che uno per parola — sono quasi tutte in
 dialetto, e `de-CH-LeniNeural` lo fa in modo ripetibile sulle frasi che
 cominciano con «Das». Lì l'audio c'è lo stesso ed è l'illuminazione che si

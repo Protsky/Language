@@ -192,6 +192,9 @@ const RAW = [
   ['b2-21', 'B2', 'El estudio se llevó a cabo en Sevilla.', 'Lo studio è stato condotto a Siviglia.', 'pasiva refleja', 'llevó a cabo', ['accademico'], 'llevar a cabo = realizzare, portare a termine.'],
   ['b2-22', 'B2', 'Por si acaso, guarda una copia.', 'Nel dubbio, tieni una copia.', 'connettivi', 'Por si acaso', ['tecnologia'], 'por si acaso = non si sa mai.'],
 
+  ['b2-23', 'B2', 'Cuando llegué, ya se habían ido.', 'Quando sono arrivato, se n’erano già andati.', 'pluscuamperfecto', 'habían ido', ['persone'], 'Il pluscuamperfecto ordina due passati: habían ido viene prima di llegué.'],
+  ['b2-24', 'B2', 'Dijo que llamaría más tarde.', 'Disse che avrebbe chiamato più tardi.', 'futuro e condizionale', 'llamaría', ['lavoro', 'persone'], 'Il condizionale è il futuro visto dal passato, esattamente come in italiano.'],
+  ['b2-25', 'B2', 'Mientras cenábamos, sonó el teléfono.', 'Mentre cenavamo, squillò il telefono.', 'indefinido e imperfetto', 'cenábamos', ['cibo', 'tecnologia'], 'L’imperfetto fa da sfondo e l’indefinido è il fatto che accade dentro.'],
   /* ------------------------------- C1 ------------------------------- */
   ['c1-01', 'C1', 'De haberlo sabido, habría actuado antes.', 'Se l’avessi saputo, avrei agito prima.', 'periodo ipotetico', 'De haberlo sabido', ['lavoro'], 'de + infinito composto sostituisce si + congiuntivo, in registro alto.'],
   ['c1-02', 'C1', 'Sea como sea, hay que decidir.', 'Comunque sia, bisogna decidere.', 'congiuntivo presente', 'Sea como sea', ['lavoro'], 'Congiuntivo raddoppiato: struttura fissa di concessione.'],

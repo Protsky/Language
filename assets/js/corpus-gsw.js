@@ -78,6 +78,10 @@ const RAW = [
   ['a1-44', 'A1', 'Ich gange go schwümme.', 'Vado a nuotare.', 'gaa go / cho', 'go schwümme', ['tempolibero', 'salute'], 'gaa go + infinito: quel go non ha nessun equivalente in tedesco.', 'Ich gehe schwimmen.'],
   ['a1-45', 'A1', 'Es gfallt mer guet.', 'Mi piace.', 'dativo', 'gfallt mer', ['generale'], 'mer è mir: il pronome al dativo si riduce a due lettere.', 'Es gefällt mir gut.'],
   ['a1-46', 'A1', 'Mir händ am achti abgmacht.', 'Ci siamo dati appuntamento alle otto.', 'Perfekt, unico passato', 'abgmacht', ['persone', 'tempolibero'], 'abmache è darsi appuntamento, e il Perfekt è l’unico passato del dialetto.', 'Wir haben um acht abgemacht.'],
+  ['a1-47', 'A1', 'Mir läbed z Züri.', 'Viviamo a Zurigo.', 'presente', 'läbed', ['casa'], 'Al plurale la desinenza è -ed: mir läbed, ir läbed, si läbed.', 'Wir leben in Zürich.'],
+  ['a1-48', 'A1', 'Er trinkt gern Kafi.', 'Gli piace il caffè.', 'presente', 'trinkt', ['cibo'], 'La terza persona prende -t come in tedesco: er trinkt, er schaffet.', 'Er trinkt gern Kaffee.'],
+  ['a1-49', 'A1', 'Ich bi müed.', 'Sono stanco.', 'verbo sii', 'bi', ['salute', 'casa'], 'sii fa ich bi, du bisch, er isch: la -n finale del tedesco sparisce.', 'Ich bin müde.'],
+  ['a1-50', 'A1', 'Er isch de schnellscht.', 'È il più veloce.', 'superlativi', 'schnellscht', ['tempolibero'], 'Il superlativo finisce in -scht: schnellscht, beschte, gröschte.', 'Er ist der schnellste.'],
   /* ------------------------------- A2 ------------------------------- */
   ['a2-01', 'A2', 'Ich bi geschter is Kino ggange.', 'Ieri sono andato al cinema.', 'Perfekt, unico passato', 'ggange', ['generale'], 'Il participio di gaa è ggange, con la doppia g iniziale.', 'Ich bin gestern ins Kino gegangen.'],
   ['a2-02', 'A2', 'Mir händ lang gwartet.', 'Abbiamo aspettato a lungo.', 'Perfekt, unico passato', 'händ', ['viaggi'], 'La prima plurale finisce in -nd: mir händ, mir gönd, mir sind.', 'Wir haben lange gewartet.'],
@@ -124,6 +128,7 @@ const RAW = [
   ['a2-41', 'A2', 'Ich lehre für d Prüefig.', 'Studio per l’esame.', 'preposizioni', 'für d Prüefig', ['accademico'], 'lehre vale sia imparare sia studiare; Prüefig è Prüfung.', 'Ich lerne für die Prüfung.'],
   ['a2-42', 'A2', 'Ich gange zwöimal i d Wuche trainiere.', 'Mi alleno due volte a settimana.', 'preposizioni', 'i d Wuche', ['tempolibero', 'salute'], 'i d Wuche vale «a settimana», e Wuche è Woche.', 'Ich gehe zweimal in der Woche trainieren.'],
   ['a2-43', 'A2', 'Ich finde das nöd guet.', 'Non mi sembra giusto.', 'negazione con nöd', 'nöd guet', ['generale'], 'nöd sta dopo il verbo e prima di quello che nega.', 'Ich finde das nicht gut.'],
+  ['a2-44', 'A2', 'S Huus vo mine Eltere.', 'La casa dei miei genitori.', 'possesso con vo', 'vo mine', ['casa', 'persone'], 'Il genitivo non esiste in dialetto: il possesso si fa con vo più il dativo.', 'Das Haus von meinen Eltern.'],
   /* ------------------------------- B1 ------------------------------- */
   ['b1-01', 'B1', 'De Maa, wo öis aaglüte hät.', 'L’uomo che ci ha chiamato.', 'relative con wo', 'wo', ['generale'], 'Il relativo è sempre wo, per persone e cose, in ogni caso.', 'Der Mann, der uns angerufen hat.'],
   ['b1-02', 'B1', 'S Buech, wo n i kauft han.', 'Il libro che ho comprato.', 'relative con wo', 'wo n i', ['accademico'], 'Fra vocali spunta una n di appoggio: wo n i, gseh n i.', 'Das Buch, das ich gekauft habe.'],
