@@ -347,6 +347,10 @@ export const RU = {
   blurb: 'Alfabeto cirillico, con accento tonico segnato e pronuncia in caratteri latini.',
   caveat: 'Le risposte si accettano in cirillico o in caratteri latini: scrivendo in latino non ti penalizzano le distinzioni che una tastiera italiana non permette di fare. L’accento tonico segnato non si scrive nei testi veri: è un aiuto, e sposta il suono di tutte le vocali attorno. La riga di pronuncia è un’approssimazione pensata per un lettore italiano.',
   bridge: 'Pronuncia',
+  /* Il ponte del russo è già la riga di lettura, calcolata dal cirillico
+   * accentato: non gliene serve una seconda da `assets/pronuncia/`. Le altre
+   * lingue col ponte (lo svizzero tedesco) lo usano per un'altra cosa. */
+  bridgeIsPronuncia: true,
   fold: folderFor,
   sentences: SENTENCES,
   placement: PLACEMENT,

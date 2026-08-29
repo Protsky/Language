@@ -22,6 +22,7 @@ import * as Speech from './speech.js';
 import * as Voices from './voices.js';
 import * as Tts from './tts.js';
 import * as Incisa from './incisa.js';
+import * as Pron from './pronuncia.js';
 import * as Sfx from './sfx.js';
 import * as Goal from './goal.js';
 
@@ -153,6 +154,17 @@ function ensureIncisa() {
     // le impostazioni dichiarano quale voce si sta usando: vanno rifatte
     if (idx && screen === 'settings') render();
   });
+  /* La riga «come si legge» arriva da un file suo. Se tarda, la carta si
+   * mostra lo stesso: è un aiuto in più, non un pezzo della domanda.
+   *
+   * Al russo non si chiede: la sua riga se la calcola dal cirillico, e domandare
+   * un file che non esiste riempiva la console di 404 a ogni apertura — rumore
+   * che poi nasconde gli errori veri. */
+  if (!lang.bridgeIsPronuncia) {
+    Pron.load(lang.code).then((idx) => {
+      if (idx && (screen === 'study' || screen === 'explore')) render();
+    });
+  }
 }
 
 /*
@@ -1136,6 +1148,7 @@ function paintStudy() {
       <div class="reveal">
         ${shown ? '' : `<p class="solution"${inLang()}>${sentenceTokens(sentence.text)}</p>`}
         ${sentence.bridge ? `<p class="bridge"><span>${esc(lang.bridge)}</span>${esc(sentence.bridge)}</p>` : ''}
+        ${comeSiLegge(sentence)}
         <p class="note"><b>${esc(sentence.g)}</b> — ${esc(sentence.note)}</p>
         <div class="tags">${sentence.dom.map((d) => `<span class="tag">${esc(DOMAINS.find((x) => x.id === d)?.label || d)}</span>`).join('')}</div>
         ${type === 'comp' && !session.ex?.reversed ? '' : audioButtons()}
@@ -1446,6 +1459,29 @@ function askProd(body, foot, sentence, done) {
   }
 }
 
+/*
+ * «Come si legge», e perché non basta la frase scritta.
+ *
+ * Il russo ha già la sua riga e se la calcola da solo: senza traslitterazione
+ * il cirillico non si legge proprio, ed è quella che compare come «Pronuncia».
+ * Le altre quattro si scrivono in caratteri latini e proprio per questo
+ * ingannano — `much` letto «muk», `gusta` letto «giusta». Per loro la riga è
+ * una riscrittura fonetica, prodotta fuori dal browser (tools/pronuncia.py) e
+ * caricata come dato.
+ *
+ * Compare solo a carta girata: prima sarebbe la risposta.
+ */
+function rigaLettura(sentence) {
+  if (lang.bridgeIsPronuncia) return null;   // ce l'ha già come ponte
+  return Pron.get(lang.code, sentence.id);
+}
+
+function comeSiLegge(sentence) {
+  const riga = rigaLettura(sentence);
+  if (!riga) return '';
+  return `<p class="bridge bridge--pron"><span>Come si legge</span>${esc(riga)}</p>`;
+}
+
 /** Frase attesa parola per parola, con quello che manca in evidenza. */
 function marksBlock(result) {
   return h(`
@@ -1641,6 +1677,10 @@ function paintExplore() {
             <div class="row-item__main">
               <p class="row-item__t"${inLang()}>${esc(s.text)}</p>
               <p class="row-item__i">${esc(s.it)}</p>
+              ${(() => {
+                const riga = s.bridge && lang.bridgeIsPronuncia ? s.bridge : rigaLettura(s);
+                return riga ? `<p class="row-item__p">${esc(riga)}</p>` : '';
+              })()}
               <p class="row-item__g">${s.lv} · ${esc(s.g)}</p>
             </div>
             <button class="icon-btn" data-say="${s.id}" data-testo="${esc(s.text)}">🔊</button>

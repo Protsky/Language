@@ -690,6 +690,60 @@ questo sì, per davvero, perché nell'ambiente di prova la rete non c'è — che
 **il ripiego funzioni**: senza connessione l'app lo dice e continua con la voce
 del telefono, senza errori.
 
+### Come si legge
+
+Sotto ogni frase c'è una riga che dice **come si pronuncia**, scritta con le
+convenzioni di chi legge in italiano:
+
+| | |
+| --- | --- |
+| 🇷🇺 `Ско́лько э́то сто́ит?` | skólko éto stóit? |
+| 🇩🇪 `Ich möchte einen Kaffee.` | ih mö́hte áinen káfe |
+| 🇬🇧 `She had left before I called.` | shi had left bifór ai kold |
+| 🇪🇸 `Me llamo Marta.` | me gliámo márta |
+| 🇨🇭 `S Zimmer isch im dritte Stock.` | s tsíma ish im dríte shtok |
+
+Sono **due cose diverse** con lo stesso scopo. Per il russo è una
+traslitterazione, e senza non si legge proprio: l'alfabeto è un altro. La
+calcola l'app dal cirillico accentato, e c'era già.
+
+Per le altre quattro non serve traslitterare — si scrivono in caratteri latini,
+e proprio per questo ingannano: un italiano legge `much` come «muk», `gusta`
+come «giusta», `Ich möchte` come «ik moc-te». Lettere che conosce, suoni che non
+sono i suoi. Lì la riga è una **riscrittura fonetica**, e non si può calcolare
+nel browser: l'inglese non ha regole, e il tedesco ne avrebbe decine con
+altrettante eccezioni. La produce `tools/pronuncia.py` con **espeak-ng**, che dà
+l'IPA parola per parola, e la si traduce in lettere che un italiano legge da
+solo.
+
+Compare a carta girata (prima sarebbe la risposta) e in **Esplora** subito, dove
+non c'è niente da svelare.
+
+#### Le tre scelte che la rendono leggibile
+
+- **`ch` vale «cena», `gh` vale «ghiro», `gli` vale «figlio».** In italiano
+  `c` e `g` cambiano suono da sole a seconda di cosa segue: scrivere `much`
+  come «mac» farebbe leggere «mak», e `llamo` come «glamo» farebbe leggere
+  /glamo/. I due suoni viaggiano come segnaposto e diventano lettere solo alla
+  fine, guardando la vocale che li segue.
+- **L'accento solo dove serve.** Va sulla sillaba tonica, e solo sulle parole
+  di più di una sillaba: presa da sola ogni parola riceve un accento primario,
+  e la riga si riempirebbe di acuti su «e», «la», «per», che nel parlato non ne
+  hanno nessuno. Per questo la frase viene data a espeak **intera** — così
+  `are` resta «a» e `I` non prende l'accento che nel parlato non ha — e solo
+  dopo si separano le parole, per poterle rileggere una sotto l'altra.
+- **Quello che l'italiano non ha resta com'è.** La `ü` e la `ö` tedesche, la
+  `th` spagnola di *gracias*, la `dh` inglese di *the*. Nessuna scrittura può
+  inventare un suono che chi legge non ha mai fatto: la riga serve a non
+  sbagliare di grosso e a sapere dove cade l'accento, non a sostituire
+  l'ascolto — che sta a un tocco di distanza.
+
+Per lo spagnolo una deroga dichiarata: `d`, `g` e `b` fra vocali sono davvero
+fricative (ð, ɣ, β), ma scriverlo rende la riga illeggibile — «de dónde»
+diventerebbe «de dhónde» — e sono suoni che un italiano produce da solo parlando
+in fretta. Restano `d`, `g`, `b`. La `th` invece resta, perché lì chi sbaglia
+dice un'altra parola.
+
 ### Ascolto guidato, sui tempi veri
 
 Insieme all'audio il sintetizzatore consegna **l'attacco e la durata di ogni
@@ -753,7 +807,8 @@ quando ha finito la carta che ha in mano. Il numero di versione della cache in
 ```bash
 node tools/validate.mjs     # corpus, motori, percorso, esercizi, taratura, deposito, voce: 450 controlli
 node tools/corpus-review.mjs       # che cosa manca al corpus, lingua per lingua
-tools/.venv/Scripts/python tools/voci.py   # incide le frasi nuove (solo quelle)
+tools/.venv/Scripts/python tools/voci.py       # incide le frasi nuove (solo quelle)
+tools/.venv/Scripts/python tools/pronuncia.py  # rifà le righe «come si legge»
 node tools/smoke.mjs        # 127 controlli end-to-end in Chromium (serve playwright)
 python3 tools/make-icons.py        # rigenera le icone PNG
 ```

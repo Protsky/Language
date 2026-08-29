@@ -98,6 +98,16 @@ Non erano tappe, erano cose rotte. Chi scrive la prossima tappa deve sapere che:
   validatore. Non è una preferenza: una frase che non entra nella memoria di
   lavoro si impara a pezzi, cioè non si impara.
 
+## La riga «come si legge» (29/08/2026)
+
+Sotto ogni frase c'è la pronuncia scritta per un lettore italiano. Il russo ce
+l'aveva già e se la calcola dal cirillico; per le altre quattro la produce
+`tools/pronuncia.py` con espeak-ng e arriva come dato in `assets/pronuncia/`.
+
+Chi aggiunge frasi deve rilanciarlo, come per le incisioni: il validatore
+controlla che ogni frase abbia la sua riga **e** che le parole siano allineate
+una sotto l'altra, che è la cosa che si romperebbe in silenzio.
+
 ## Idee tenute in caldo
 
 - Modo "conversazione": due o tre frasi collegate invece di frasi isolate.

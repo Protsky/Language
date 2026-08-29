@@ -1010,5 +1010,39 @@ console.log('[voce] le frasi incise');
   }
 }
 
+/* --------------------------- come si legge ------------------------------ */
+
+console.log('');
+console.log('[pronuncia] la riga «come si legge»');
+{
+  /*
+   * Stesso patto dell'audio: il corpus e la riga di pronuncia si scollano solo
+   * se si aggiungono frasi e non si rilancia `tools/pronuncia.py`. Qui si
+   * controlla anche l'ALLINEAMENTO parola per parola, che e' la cosa che
+   * romperebbe in silenzio: una riga con una parola in meno metterebbe la
+   * pronuncia di una parola sotto un'altra, e nessuno se ne accorgerebbe.
+   */
+  const { readFileSync, existsSync } = await import('node:fs');
+  const parole = (t) => t.split(/\s+/).filter(Boolean).length;
+  for (const lang of LANGS) {
+    const file = new URL(`../assets/pronuncia/${lang.code}.json`, import.meta.url);
+    if (!existsSync(file)) {
+      // il russo non ne ha bisogno: la sua riga se la calcola l'app dal cirillico
+      const suo = lang.sentences.every((s) => s.bridge);
+      expect(suo, `[${lang.code}] niente riga di pronuncia e niente ponte: la frase resta muta sulla pagina`);
+      ok(`[${lang.code}] la riga di lettura la calcola l'app (${lang.bridge})`);
+      continue;
+    }
+    const idx = JSON.parse(readFileSync(file, 'utf8'));
+    const mancanti = lang.sentences.filter((s) => !idx.frasi[s.id]);
+    expect(mancanti.length === 0,
+      `[${lang.code}] ${mancanti.length} frasi senza riga di pronuncia (${mancanti.slice(0, 3).map((s) => s.id).join(', ')}): rilancia tools/pronuncia.py`);
+    const storte = lang.sentences.filter((s) => idx.frasi[s.id] && parole(idx.frasi[s.id]) !== parole(s.text));
+    expect(storte.length === 0,
+      `[${lang.code}] ${storte.length} righe disallineate dalla frase (${storte.slice(0, 3).map((s) => s.id).join(', ')})`);
+    ok(`[${lang.code}] ${lang.sentences.length} righe da ${idx.motore}, tutte allineate parola per parola`);
+  }
+}
+
 console.log(`\n${errors ? `${errors} problemi su ${checks} controlli` : `tutto a posto (${checks} controlli)`}`);
 process.exit(errors ? 1 : 0);

@@ -1,5 +1,5 @@
 /* Service worker: l'app resta utilizzabile offline dopo la prima visita. */
-const CACHE = 'frasi-v21';
+const CACHE = 'frasi-v22';
 
 /*
  * L'audio inciso sta in una cache SUA, e il numero di versione non la tocca.
@@ -32,6 +32,7 @@ const ASSETS = [
   'assets/js/fsrs.js',
   'assets/js/goal.js',
   'assets/js/incisa.js',
+  'assets/js/pronuncia.js',
   'assets/js/irt.js',
   'assets/js/optimizer.js',
   'assets/js/scheduler.js',
