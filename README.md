@@ -437,8 +437,8 @@ telefono o svuotare i dati del browser.
 I moduli JavaScript non funzionano aprendo il file da disco: serve un server.
 
 ```bash
-git clone https://github.com/Protsky/frasi.git
-cd frasi
+git clone https://github.com/Protsky/Language.git
+cd Language
 python3 -m http.server 8080     # poi apri http://localhost:8080/
 ```
 
