@@ -19,31 +19,38 @@
   "assets": {
     "directory": "./dist",
     "not_found_handling": "none"
+  },
+
+  // IL DEPOSITO DEI PROGRESSI. Una sola istanza, che tiene una tabella SQLite.
+  //
+  // Non c'e' niente da creare prima: lo crea il deploy leggendo queste righe.
+  // E' il motivo per cui e' un Durable Object e non uno spazio KV o un bucket
+  // R2 — quelli sono risorse dell'account: vanno create a mano, restituiscono
+  // un id da incollare qui, e chi riparte da zero deve rifare quel giro. (R2
+  // in piu' chiede un metodo di pagamento anche nel piano gratuito.)
+  //
+  // Il prezzo, per intero: le richieste passano tutte per una sola istanza e
+  // vengono servite una alla volta. Per un deposito che riceve una scrittura a
+  // fine sessione non si nota, e in cambio non esistono due scritture in volo
+  // sullo stesso mazzo.
+  "durable_objects": {
+    "bindings": [
+      { "name": "MAZZI", "class_name": "Mazzi" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Mazzi"] }
+  ],
+
+  "vars": {
+    // L'IMPRONTA della parola d'ordine che serve a creare un mazzo nuovo, non
+    // la parola. Da 200'000 giri di PBKDF2-SHA256 non si torna indietro, e la
+    // parola e' di otto parole sorteggiate (51 bit): indovinarla costa molto
+    // piu' di quanto valga il deposito di frasi di una persona.
+    //
+    // Sta qui e non fra i secret dell'account per la stessa ragione di tutto
+    // il resto: un secret va messo a mano dopo, un'impronta si pubblica con il
+    // codice. Per cambiare parola si rigenera l'impronta e si fa un commit.
+    "PAROLA_HASH": "d3deecedb116268e88d5e18a02657e3c08f2fdd377320aba43c74e166dbd773f"
   }
-
-  // IL DEPOSITO DEI PROGRESSI, spento finche' non c'e' lo spazio dove scrivere.
-  //
-  // Sta commentato di proposito: un binding che punta a un id inesistente fa
-  // fallire il deploy, e un sito che non si pubblica e' peggio di un sito
-  // senza backup. Cosi' invece l'app va online lo stesso e /api risponde 503
-  // dicendo che manca il deposito — i progressi restano sul telefono, come
-  // hanno sempre fatto.
-  //
-  // Si accende creando lo spazio una volta sola:
-  //     npx wrangler kv namespace create PROGRESSI
-  // e rimettendo qui l'id che stampa.
-  //
-  // KV e non R2: il dato e' un JSON scritto una volta a fine sessione — una
-  // chiave, un valore — e R2 su Cloudflare chiede un metodo di pagamento
-  // anche nel piano gratuito. Lo spazio e' lo stesso dell'app degli scacchi,
-  // e le due convivono grazie al prefisso della chiave (frasi: e scacchi:).
-  //
-  // "kv_namespaces": [
-  //   { "binding": "MAZZI", "id": "<id dello spazio PROGRESSI>" }
-  // ]
-
-  // PAROLA — la parola d'ordine che serve a CREARE un mazzo nuovo — non sta
-  // qui: è un secret del Worker, e un secret in un file versionato non è un
-  // secret. Si mette una volta sola, dal pannello o con:
-  //     npx wrangler secret put PAROLA
 }
