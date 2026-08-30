@@ -72,7 +72,14 @@ const CODICE = /^[a-z]+-[a-z]+-[a-z]+-[a-z]+$/;
  * parcheggiare file. */
 const MAX = 2 * 1024 * 1024;
 
-const GIRI = 200000;
+/*
+ * CENTOMILA E NON DUECENTOMILA: e' il tetto che Cloudflare mette a PBKDF2 nei
+ * Worker. In locale non c'e', quindi la differenza si e' vista solo online —
+ * l'API rispondeva 1101, cioe' l'eccezione generica, su qualunque richiesta.
+ * Con otto parole sorteggiate (51 bit) centomila giri bastano largamente: la
+ * lentezza serve contro le parole indovinabili, e questa non lo e'.
+ */
+const GIRI = 100000;
 
 const json = (dati, stato = 200) =>
   new Response(JSON.stringify(dati), {
@@ -92,7 +99,7 @@ function nuovoCodice() {
  *
  * L'impronta sta in un file versionato di un repository pubblico, quindi
  * chiunque può provare a indovinare la parola offline. Con uno SHA-256 diretto
- * un elenco di parole comuni si prova per intero in pochi secondi; con 200'000
+ * un elenco di parole comuni si prova per intero in pochi secondi; con 100'000
  * giri ogni tentativo costa, e su una parola generata a caso il conto non
  * torna più a nessuno. Il sale è fisso perché il segreto è uno solo: qui il
  * sale non serve contro le tabelle precalcolate di un database rubato, serve

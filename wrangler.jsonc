@@ -44,13 +44,13 @@
 
   "vars": {
     // L'IMPRONTA della parola d'ordine che serve a creare un mazzo nuovo, non
-    // la parola. Da 200'000 giri di PBKDF2-SHA256 non si torna indietro, e la
+    // la parola. Da 100'000 giri di PBKDF2-SHA256 non si torna indietro, e la
     // parola e' di otto parole sorteggiate (51 bit): indovinarla costa molto
     // piu' di quanto valga il deposito di frasi di una persona.
     //
     // Sta qui e non fra i secret dell'account per la stessa ragione di tutto
     // il resto: un secret va messo a mano dopo, un'impronta si pubblica con il
     // codice. Per cambiare parola si rigenera l'impronta e si fa un commit.
-    "PAROLA_HASH": "d3deecedb116268e88d5e18a02657e3c08f2fdd377320aba43c74e166dbd773f"
+    "PAROLA_HASH": "0776bb19ea034c6922aab33fcc61442cf8cccd09877cd5d2b3d52810f85a46de"
   }
 }
