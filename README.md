@@ -57,9 +57,9 @@ di troppo sono `eine` e `Tag`: la prima è esattamente l'articolo sbagliato.
 
 ### L'abbinamento che apre la sessione
 
-Quando in coda ci sono almeno quattro riconoscimenti, la sessione si apre con
-un **abbinamento a sei coppie**: si tocca la frase in italiano, si tocca la sua
-traduzione, e la coppia si chiude.
+Quando in coda ci sono almeno quattro riconoscimenti **di frasi già
+incontrate**, la sessione si apre con un **abbinamento a sei coppie**: si tocca
+la frase in italiano, si tocca la sua traduzione, e la coppia si chiude.
 
 Non è un tipo di carta nuovo — è un altro modo di far sostenere lo stesso
 riconoscimento a sei carte insieme, e ognuna esce con il voto che si è preso:
@@ -68,6 +68,21 @@ nuovo. Il vantaggio non è la velocità: è che i cinque distrattori sono frasi
 vere, presenti sullo schermo nello stesso momento, quindi il richiamo avviene
 **sotto interferenza** invece che contro tre opzioni pescate a caso. Si spegne
 dalle impostazioni.
+
+#### Perché mai su frasi nuove
+
+Richiamare presuppone che ci sia qualcosa da richiamare. Su sei frasi mai viste
+l'abbinamento non è un esercizio difficile, è una **lotteria**: l'unico modo di
+risolverla è provare finché non resta l'ultima coppia, e chi la fa non impara
+niente perché non c'era niente da ricordare.
+
+Il danno però non è la frustrazione: è che da lì esce un **voto**, e quel voto
+va dritto dentro FSRS. Fino al 30/08/2026 il primo giorno di una lingua nuova si
+apriva esattamente così — la coda è fatta di sole carte mai viste — e le prime
+sei frasi entravano nel modello di memoria con l'esito di un sorteggio al posto
+di una risposta. Adesso `matchable()` tiene fuori le carte nuove, e il primo
+giorno la sessione comincia dalla prima carta: un riconoscimento a quattro
+opzioni, che si può sbagliare imparando qualcosa.
 
 ### Ascolta e scrivi
 

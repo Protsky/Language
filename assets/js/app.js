@@ -14,7 +14,7 @@ import * as Chart from './chart.js';
 import * as Fsrs from './fsrs.js';
 import { createScheduler, GRADES, REVIEW, NEW, DEFAULT_W } from './fsrs.js';
 import * as Opt from './optimizer.js';
-import { buildQueue, splitId, TYPES, nextDue, targetLevel, levelScore, pendingUnlocks } from './scheduler.js';
+import { buildQueue, splitId, TYPES, nextDue, targetLevel, levelScore, pendingUnlocks, matchable, MATCH_MIN } from './scheduler.js';
 import * as Units from './units.js';
 import { diff } from './check.js';
 import * as Ex from './exercises.js';
@@ -892,13 +892,10 @@ function startSession({ extraNew = 0, unit = null } = {}) {
   go('study');
 }
 
-/** Quante coppie fa un abbinamento, e da quante carte in giù ha senso farlo. */
-const MATCH_SIZE = 6;
-const MATCH_MIN = 4;
-
 /**
- * Apre la sessione con un abbinamento, se ci sono abbastanza riconoscimenti in
- * coda: si tocca l'italiano, si tocca la frase, e le coppie si chiudono.
+ * Apre la sessione con un abbinamento, se ci sono abbastanza riconoscimenti
+ * GIA' INCONTRATI in coda: si tocca l'italiano, si tocca la frase, e le coppie
+ * si chiudono.
  *
  * Non è un tipo di carta nuovo — è un altro modo di far sostenere lo stesso
  * riconoscimento a sei carte insieme. Il vantaggio non è la velocità: è che i
@@ -906,16 +903,17 @@ const MATCH_MIN = 4;
  * momento, quindi il richiamo avviene sotto interferenza invece che contro tre
  * opzioni scelte a caso. Il voto di ogni carta esce da come è andata la sua
  * coppia: al primo colpo, dopo un errore, dopo due.
+ *
+ * Su frasi mai viste tutto questo non vale: `matchable()` le tiene fuori, e il
+ * perché sta scritto lì.
  */
 function openMatch() {
   if (!settings().match) return;
   const picks = [];
-  for (let i = 0; i < session.queue.length && picks.length < MATCH_SIZE; i++) {
-    const card = session.queue[i];
-    if (splitId(card.id).type !== 'comp') continue;
+  for (const { card, index } of matchable(session.queue)) {
     const sentence = session.sentences.get(splitId(card.id).sid);
     if (!sentence) continue;
-    picks.push({ card, sentence, index: i });
+    picks.push({ card, sentence, index });
   }
   if (picks.length < MATCH_MIN) return;
 

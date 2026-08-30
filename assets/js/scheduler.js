@@ -276,6 +276,40 @@ export function buildQueue({ lang, deck, settings, introducedToday = 0, now = Da
   };
 }
 
+/* Quante coppie fa un abbinamento, e da quante carte in giù ha senso farlo. */
+export const MATCH_SIZE = 6;
+export const MATCH_MIN = 4;
+
+/**
+ * Quali carte possono entrare in un abbinamento.
+ *
+ * SOLO QUELLE GIA' INCONTRATE, ed è il punto di tutta la funzione. Un
+ * abbinamento è un richiamo sotto interferenza: sei frasi vere sullo schermo
+ * nello stesso momento, e per chiuderne una bisogna riconoscerla contro le
+ * altre cinque. Ma richiamare presuppone che ci sia qualcosa da richiamare —
+ * su sei frasi mai viste non è un esercizio difficile, è una lotteria, e
+ * l'unico modo di risolverla è provare finché non resta l'ultima coppia.
+ *
+ * Il danno non è la frustrazione: è che da lì esce un VOTO, e quel voto va a
+ * FSRS. Prima del 30/08/2026 il primo giorno di una lingua nuova si apriva
+ * così, e le prime sei frasi entravano nel modello di memoria con l'esito di
+ * un sorteggio al posto di una risposta.
+ *
+ * Restituisce l'elenco vuoto quando non ce ne sono abbastanza: senza
+ * abbinamento la sessione comincia dalla prima carta, che è il caso normale
+ * del primo giorno.
+ */
+export function matchable(queue) {
+  const out = [];
+  for (let i = 0; i < queue.length && out.length < MATCH_SIZE; i++) {
+    const card = queue[i];
+    if (splitId(card.id).type !== 'comp') continue;
+    if (card.state === NEW) continue;
+    out.push({ card, index: i });
+  }
+  return out.length >= MATCH_MIN ? out : [];
+}
+
 /** Prossima scadenza fra le carte non ancora dovute: per il messaggio "torna fra…". */
 export function nextDue(deck, now = Date.now()) {
   let best = Infinity;

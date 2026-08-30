@@ -8,7 +8,7 @@ import { LANGS, DOMAINS, LEVELS } from '../assets/js/corpus.js';
 import * as Fsrs from '../assets/js/fsrs.js';
 import * as Irt from '../assets/js/irt.js';
 import { diff, suggestGrade, normalize } from '../assets/js/check.js';
-import { buildQueue, cardId, unlocked, ladder, TYPES, levelScore } from '../assets/js/scheduler.js';
+import { buildQueue, cardId, unlocked, ladder, TYPES, levelScore, matchable, MATCH_MIN } from '../assets/js/scheduler.js';
 import * as Units from '../assets/js/units.js';
 import { SITUATIONS, words as wordCount, overlap } from './situations.mjs';
 import * as Ex from '../assets/js/exercises.js';
@@ -1042,6 +1042,51 @@ console.log('[pronuncia] la riga «come si legge»');
       `[${lang.code}] ${storte.length} righe disallineate dalla frase (${storte.slice(0, 3).map((s) => s.id).join(', ')})`);
     ok(`[${lang.code}] ${lang.sentences.length} righe da ${idx.motore}, tutte allineate parola per parola`);
   }
+}
+
+/* ------------------------------ abbinamento ----------------------------- */
+
+console.log('');
+console.log('[abbina] su quali frasi si puo fare');
+{
+  /*
+   * Il primo giorno di una lingua nuova la coda e' fatta di sole carte mai
+   * viste. Aprire la sessione con un abbinamento a sei coppie, li', non e' un
+   * esercizio difficile: e' una lotteria, e si risolve provando finche' non
+   * resta l'ultima coppia. Il danno non e' la frustrazione — da quell'esercizio
+   * esce un VOTO, e quel voto va dritto dentro FSRS.
+   */
+  const lang = LANGS.find((l) => l.code === 'de');
+  const vuoto = { profile: { theta: null }, cards: {}, log: [], daily: {}, streak: {} };
+  const { queue: primoGiorno } = buildQueue({
+    lang,
+    deck: vuoto,
+    settings: { newPerDay: 8, maxReviews: 120, direction: 'produce', domains: [] },
+    random: () => 0.5,
+  });
+  expect(primoGiorno.length >= MATCH_MIN, 'il primo giorno non ha nemmeno abbastanza carte per il controllo');
+  expect(matchable(primoGiorno).length === 0,
+    `il primo giorno l'abbinamento parte su ${matchable(primoGiorno).length} frasi mai viste`);
+  ok(`il primo giorno (${primoGiorno.length} carte, tutte nuove) non apre nessun abbinamento`);
+
+  // e quando le frasi ci sono state davvero, l'abbinamento torna
+  const maturo = { ...vuoto, cards: {} };
+  for (const s of lang.sentences.slice(0, 6)) {
+    maturo.cards[cardId(s.id, 'comp')] = {
+      id: cardId(s.id, 'comp'), sid: s.id, type: 'comp',
+      state: 'review', reps: 3, s: 20, d: 5, ivl: 20, due: Date.now() - DAY,
+    };
+  }
+  const { queue: dopo } = buildQueue({
+    lang,
+    deck: maturo,
+    settings: { newPerDay: 0, maxReviews: 120, direction: 'produce', domains: [] },
+    random: () => 0.5,
+  });
+  const scelte = matchable(dopo);
+  expect(scelte.length >= MATCH_MIN, `con sei ripassi in scadenza l'abbinamento non parte (${scelte.length} carte)`);
+  expect(scelte.every((x) => x.card.state !== 'new'), "una carta mai vista e finita nell'abbinamento");
+  ok(`con ${dopo.length} ripassi in scadenza l'abbinamento prende ${scelte.length} carte, tutte gia' incontrate`);
 }
 
 console.log(`\n${errors ? `${errors} problemi su ${checks} controlli` : `tutto a posto (${checks} controlli)`}`);
