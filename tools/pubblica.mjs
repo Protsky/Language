@@ -18,6 +18,10 @@
  * divieti si dimentica di aggiornare, e il file nuovo passa; una lista di
  * permessi si dimentica allo stesso modo, ma il file nuovo NON passa e se ne
  * accorge subito chi lo cercava.
+ *
+ * `docs/` per esempio non e' qui dentro, ed e' giusto cosi': e' la pagina di
+ * trasloco che serve GitHub Pages sul vecchio indirizzo, e sul Worker non ci
+ * deve arrivare — la' l'app c'e' davvero.
  */
 import { cp, mkdir, rm, writeFile, readdir, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
