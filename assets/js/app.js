@@ -2689,9 +2689,40 @@ render();
  * di non buttarli via al primo giro di pulizie. */
 Store.requestPersistence();
 
-/* E se c'è un codice, si guarda subito se il server ha qualcosa di più recente:
- * è il caso di chi riprende su un telefono nuovo, o dopo una pulizia. */
-sincronizza({ silenzioso: true });
+/*
+ * IL CODICE PUO' ARRIVARE DALL'INDIRIZZO: `?codice=quattro-parole`.
+ *
+ * Serve al passaggio più scomodo di tutta l'app: collegare un telefono. Senza,
+ * bisogna aprire le impostazioni e ricopiare a mano quattro parole lette da un
+ * altro schermo. Con, si tocca un link e basta.
+ *
+ * Si adotta quello che c'è sul server (non si sincronizza: chi arriva da un
+ * link ha appena installato, quindi la sua copia è la più recente e vincerebbe
+ * cancellando tutto), e poi l'indirizzo si ripulisce subito con `replaceState`
+ * — il codice vale come una password e non deve restare nella barra, nella
+ * cronologia o nel titolo di una scheda condivisa.
+ */
+(async () => {
+  const daLink = new URLSearchParams(location.search).get('codice');
+  if (daLink && /^[a-z]+-[a-z]+-[a-z]+-[a-z]+$/.test(daLink)) {
+    history.replaceState(null, '', location.pathname);
+    try {
+      await Sync.riprendi(daLink, { importa: (t) => Store.importJson(t) });
+      Sync.setCodice(daLink);
+      sync = { stato: 'ricevuto', quando: Date.now(), errore: null, perso: false };
+      incisaPer = null;
+      screen = Store.getLang() ? 'home' : 'welcome';
+      render();
+      return;
+    } catch (err) {
+      sync = { stato: 'errore', quando: 0, errore: String(err.message || err), perso: false };
+      render();
+    }
+  }
+  /* E se un codice c'era già, si guarda se il server ha qualcosa di più
+   * recente: è il caso di chi riprende dopo una pulizia del browser. */
+  sincronizza({ silenzioso: true });
+})();
 
 /*
  * Aggiornamenti: si annunciano, non si impongono.
