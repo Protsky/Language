@@ -118,6 +118,13 @@ export const storageError = () => writeError;
 export const clearStorageError = () => { writeError = null; };
 
 function write(state) {
+  /*
+   * QUANDO e' stato scritto l'ultima volta. Serve a una cosa sola: decidere
+   * quale fra la copia di qui e quella del server e' la piu' recente. Senza un
+   * numero che cambia a ogni scrittura, «piu' recente» non si puo' stabilire e
+   * la sincronizzazione diventerebbe un tiro a indovinare.
+   */
+  state.aggiornato = Date.now();
   cache = state;
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
@@ -172,6 +179,9 @@ export function update(fn) {
 }
 
 export const getState = () => structuredClone(read());
+
+/** Quando e' stato toccato per l'ultima volta lo stato di questo dispositivo. */
+export const aggiornatoLocale = () => read().aggiornato || 0;
 
 /* Copia: chi legge le impostazioni non deve poter cambiare quelle di tutti. */
 export const getSettings = () => structuredClone(read().settings);

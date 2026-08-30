@@ -460,6 +460,31 @@ ul { margin: 0; padding-left: 1.1em; }
   letter-spacing: 0.01em;
 }
 
+/* Il codice di ripresa: grande, monospaziato e selezionabile. Va letto da uno
+   schermo e riscritto su un altro, e una i scambiata per una l lo rende
+   inutile — per questo l'elenco delle parole non ne contiene di ambigue. */
+.codice {
+  margin: 4px 0 8px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 17px;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  user-select: all;
+  word-break: break-word;
+}
+
+.field { display: block; margin: 8px 0; }
+.field > span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .caveat { line-height: 1.5; }
 
 /* Allarme: si vede, non si confonde con una nota, e non si chiude da solo. */

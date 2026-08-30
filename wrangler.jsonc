@@ -1,0 +1,49 @@
+{
+  // Come si costruisce e cosa si pubblica di questo repo.
+  //
+  // Sta qui e non nel pannello di Cloudflare di proposito: nel pannello la
+  // configurazione è invisibile a chi legge il codice, non finisce nei commit
+  // e non si può tornare indietro guardando la storia. Qui invece cambia
+  // insieme al resto, e si vede nel diff.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "language",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-08-01",
+
+  // `dist/` la prepara `node tools/pubblica.mjs`, che ci mette SOLO l'app:
+  // niente tools/, niente README, niente dotfile. Servendo la radice del repo
+  // finirebbe online anche ciò che nessuno aveva deciso di pubblicare.
+  //
+  // Gli asset vengono prima: il Worker si sveglia solo su ciò che non è un
+  // file, cioè su /api/. Una frase incisa non passa da nessun codice.
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "none"
+  }
+
+  // IL DEPOSITO DEI PROGRESSI, spento finche' non c'e' lo spazio dove scrivere.
+  //
+  // Sta commentato di proposito: un binding che punta a un id inesistente fa
+  // fallire il deploy, e un sito che non si pubblica e' peggio di un sito
+  // senza backup. Cosi' invece l'app va online lo stesso e /api risponde 503
+  // dicendo che manca il deposito — i progressi restano sul telefono, come
+  // hanno sempre fatto.
+  //
+  // Si accende creando lo spazio una volta sola:
+  //     npx wrangler kv namespace create PROGRESSI
+  // e rimettendo qui l'id che stampa.
+  //
+  // KV e non R2: il dato e' un JSON scritto una volta a fine sessione — una
+  // chiave, un valore — e R2 su Cloudflare chiede un metodo di pagamento
+  // anche nel piano gratuito. Lo spazio e' lo stesso dell'app degli scacchi,
+  // e le due convivono grazie al prefisso della chiave (frasi: e scacchi:).
+  //
+  // "kv_namespaces": [
+  //   { "binding": "MAZZI", "id": "<id dello spazio PROGRESSI>" }
+  // ]
+
+  // PAROLA — la parola d'ordine che serve a CREARE un mazzo nuovo — non sta
+  // qui: è un secret del Worker, e un secret in un file versionato non è un
+  // secret. Si mette una volta sola, dal pannello o con:
+  //     npx wrangler secret put PAROLA
+}

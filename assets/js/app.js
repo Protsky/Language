@@ -23,6 +23,7 @@ import * as Voices from './voices.js';
 import * as Tts from './tts.js';
 import * as Incisa from './incisa.js';
 import * as Pron from './pronuncia.js';
+import * as Sync from './sync.js';
 import * as Sfx from './sfx.js';
 import * as Goal from './goal.js';
 
@@ -668,6 +669,56 @@ function paintTestResult() {
   view.append(el);
 }
 
+/* ------------------------- progressi sul server ------------------------- */
+
+/*
+ * L'app resta offline-first: mentre studi decide tutto il telefono. Questo
+ * serve a una cosa sola — che `localStorage`, che si svuota se il browser fa
+ * pulizia o se cambi telefono, non sia anche l'UNICA copia di mesi di ripassi.
+ *
+ * Si parla col server all'apertura e a fine sessione. Mai durante lo studio:
+ * sostituire il mazzo sotto i piedi di chi sta rispondendo sarebbe il modo più
+ * elegante di perdere una sessione.
+ */
+let sync = { stato: 'fermo', quando: 0, errore: null, perso: false };
+let daSincronizzare = false;
+let sincronizzando = false;
+
+async function sincronizza({ silenzioso = false } = {}) {
+  const codice = Sync.getCodice();
+  if (!codice || sincronizzando || session) return;
+  sincronizzando = true;
+  if (!silenzioso) { sync = { ...sync, stato: 'in corso', errore: null }; render(); }
+  try {
+    const esito = await Sync.sincronizza(codice, {
+      esporta: () => Store.exportJson(),
+      importa: (testo) => Store.importJson(testo),
+      aggiornatoLocale: () => Store.aggiornatoLocale(),
+      quanteRisposte: () => {
+        const stato = Store.getState();
+        return Object.values(stato.decks || {})
+          .reduce((n, mazzo) => n + Object.keys(mazzo.cards || {}).length, 0);
+      },
+    });
+    sync = { stato: esito.esito, quando: Date.now(), errore: null, perso: Boolean(esito.perso) };
+    if (esito.esito === 'ricevuto') {
+      /* Il mazzo è cambiato sotto: l'indice delle incisioni è di un'altra
+       * lingua, e chi era fermo sul benvenuto adesso un mazzo ce l'ha. Senza
+       * questo si resta sulla schermata iniziale a guardare i propri dati
+       * senza vederli. */
+      incisaPer = null;
+      if (screen === 'welcome' || screen === 'pickLang') {
+        screen = Store.getLang() ? 'home' : 'welcome';
+      }
+    }
+  } catch (err) {
+    sync = { ...sync, stato: 'errore', errore: String(err.message || err) };
+  } finally {
+    sincronizzando = false;
+    render();
+  }
+}
+
 /**
  * Se una scrittura è fallita si dice qui, e si dice sempre.
  *
@@ -686,6 +737,37 @@ function storageAlarm() {
         : 'Il browser rifiuta di scrivere: succede in navigazione privata. Quello che fai adesso andrà perso alla chiusura della scheda.'}</p>
       <p class="small muted">Ultimo tentativo fallito alle ${new Date(err.at).toLocaleTimeString('it-CH', { hour: '2-digit', minute: '2-digit' })}.</p>
     </div>`;
+}
+
+/**
+ * Quando la sincronizzazione ha buttato via del lavoro, o non è riuscita.
+ *
+ * Il primo caso è quello che non va nascosto: «vince l'ultimo» vuol dire che
+ * qualcuno perde, e chi perde deve saperlo subito e sapere che cosa. Il secondo
+ * è più banale ma altrettanto silenzioso — senza avviso, uno crede di avere un
+ * backup che non ha.
+ */
+function syncAlarm() {
+  if (sync.perso) {
+    return `
+      <div class="card card--flat alarm">
+        <p><b>Il server aveva una versione più recente.</b></p>
+        <p class="small">Ho adottato quella. Le risposte date su questo dispositivo dopo
+        l’ultima sincronizzazione non ci sono più: erano state date su un mazzo che nel
+        frattempo era andato avanti da un’altra parte.</p>
+        <p class="small muted">Succede studiando lo stesso codice su due dispositivi senza
+        sincronizzare in mezzo.</p>
+      </div>`;
+  }
+  if (sync.stato === 'errore') {
+    return `
+      <div class="card card--flat alarm">
+        <p><b>I progressi non stanno andando sul server.</b></p>
+        <p class="small">${esc(sync.errore || '')}</p>
+        <p class="small muted">Sul telefono sono salvati lo stesso: manca la copia di scorta.</p>
+      </div>`;
+  }
+  return '';
 }
 
 /* --------------------------------- home --------------------------------- */
@@ -711,6 +793,7 @@ function paintHome() {
   const el = h(`
     <section class="pad stack">
       ${storageAlarm()}
+      ${syncAlarm()}
       <div class="today">
         ${Chart.ring({
           value: day.xp,
@@ -860,6 +943,7 @@ function paintPath() {
  * saltarli per fare un'unità a piacere sarebbe barare con le scadenze.
  */
 function startSession({ extraNew = 0, unit = null } = {}) {
+  daSincronizzare = true;
   /* Secondo tentativo, dopo un gesto: certi browser concedono la persistenza
    * solo a un sito con cui si sta davvero interagendo. */
   Store.requestPersistence();
@@ -1586,6 +1670,9 @@ function endSession() {
 function paintDone() {
   const s = session;
   session = null;
+  /* Adesso che la sessione è chiusa il mazzo è fermo: è il momento di
+   * mandarlo. Prima sarebbe stato un colpo su un bersaglio in movimento. */
+  if (daSincronizzare) { daSincronizzare = false; sincronizza({ silenzioso: true }); }
   setBar('');
   const cfg = settings();
   const day = Store.today(lang.code);
@@ -2224,6 +2311,8 @@ function paintSettings() {
 
       ${storageAlarm()}
 
+      ${schedaSync()}
+
       <div class="card card--flat">
         <div class="card__head"><b>Dati</b><span class="muted small" id="spazio">—</span></div>
         <button class="btn btn--ghost" data-act="export">Esporta un backup</button>
@@ -2265,6 +2354,49 @@ function paintSettings() {
             : el2.value;
     }
   });
+  on(el, '[data-act="sync-crea"]', 'click', async () => {
+    const parola = view.querySelector('#sync-parola')?.value.trim();
+    if (!parola) return;
+    try {
+      const codice = await Sync.crea(parola);
+      Sync.setCodice(codice);
+      sync = { stato: 'fermo', quando: 0, errore: null, perso: false };
+      render();
+      sincronizza();
+    } catch (err) {
+      sync = { ...sync, stato: 'errore', errore: String(err.message || err) };
+      render();
+    }
+  });
+  on(el, '[data-act="sync-riprendi"]', 'click', async () => {
+    const codice = view.querySelector('#sync-codice')?.value.trim().toLowerCase();
+    if (!codice) return;
+    /* Si legge PRIMA di ricordarselo: un codice sbagliato salvato qui vorrebbe
+     * dire credere di avere un backup che non esiste. E si ADOTTA quello che
+     * c'è, invece di sincronizzare: chi arriva qui su un telefono nuovo ha già
+     * scelto la lingua e forse fatto il test, quindi la copia locale è la più
+     * recente e una sincronizzazione normale cancellerebbe il mazzo vero. */
+    try {
+      const esito = await Sync.riprendi(codice, { importa: (t) => Store.importJson(t) });
+      Sync.setCodice(codice);
+      sync = { stato: esito.esito === 'vuoto' ? 'pari' : 'ricevuto', quando: Date.now(), errore: null, perso: false };
+      lang = null;
+      incisaPer = null;
+      screen = Store.getLang() ? 'home' : 'welcome';
+      render();
+    } catch (err) {
+      sync = { ...sync, stato: 'errore', errore: String(err.message || err) };
+      render();
+    }
+  });
+  on(el, '[data-act="sync-ora"]', 'click', () => sincronizza());
+  on(el, '[data-act="sync-stacca"]', 'click', () => {
+    if (!confirm('Scollego questo dispositivo? I progressi restano qui e restano sul server, ma smettono di parlarsi.')) return;
+    Sync.setCodice(null);
+    sync = { stato: 'fermo', quando: 0, errore: null, perso: false };
+    render();
+  });
+
   on(el, '[data-toggle]', 'change', (e) => Store.setSetting(e.currentTarget.dataset.toggle, e.currentTarget.checked));
   on(el, '[data-online]', 'change', (e) => {
     Store.setSetting('online', { ...(settings().online || {}), [lang.code]: e.currentTarget.checked });
@@ -2339,6 +2471,66 @@ async function testOnlineVoice() {
   stopSpeaking();
   await say(sample.text, {});
   if (screen === 'settings') render();
+}
+
+/**
+ * La scheda dei progressi sul server.
+ *
+ * Il codice è scritto in chiaro e si può copiare, perché è l'unica cosa che
+ * riporta indietro un mazzo: nasconderlo dietro un'icona vorrebbe dire che il
+ * giorno del telefono nuovo non si sa dove cercarlo. Ed è scritto qui, senza
+ * girarci intorno, che quel codice fa da password.
+ */
+function schedaSync() {
+  const codice = Sync.getCodice();
+  const quando = sync.quando
+    ? new Date(sync.quando).toLocaleString('it-CH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : null;
+  const detto = {
+    inviato: 'mandato al server',
+    ricevuto: 'ripreso dal server',
+    pari: 'già uguali',
+    'in corso': 'sto sincronizzando…',
+    errore: 'non riuscita',
+    fermo: '',
+  }[sync.stato] || '';
+
+  if (!codice) {
+    return `
+      <div class="card card--flat">
+        <div class="card__head"><b>Progressi sul server</b><span class="muted small">non collegato</span></div>
+        <p class="small muted">Adesso i progressi stanno solo su questo dispositivo. Se il browser
+        fa pulizia, o cambi telefono, ripartono da zero: sono mesi di ripassi, ed è l’unica cosa
+        qui dentro che non si può rifare.</p>
+        <label class="field">
+          <span>Parola d’ordine dello studio</span>
+          <input class="input" type="text" id="sync-parola" autocomplete="off" autocapitalize="none"
+            spellcheck="false" placeholder="serve solo per creare un codice nuovo">
+        </label>
+        <button class="btn btn--primary" data-act="sync-crea">Collega questo dispositivo</button>
+        <label class="field">
+          <span>Oppure: ho già un codice</span>
+          <input class="input" type="text" id="sync-codice" autocomplete="off" autocapitalize="none"
+            spellcheck="false" placeholder="quattro parole separate da trattini">
+        </label>
+        <button class="btn btn--ghost" data-act="sync-riprendi">Riprendi da un codice</button>
+        <p class="small muted">${sync.errore ? esc(sync.errore) : ''}</p>
+      </div>`;
+  }
+
+  return `
+    <div class="card card--flat">
+      <div class="card__head"><b>Progressi sul server</b><span class="muted small">${quando ? esc(`${detto} · ${quando}`) : esc(detto)}</span></div>
+      <p class="codice">${esc(codice)}</p>
+      <p class="small muted">È il tuo codice di ripresa: scrivilo dove lo ritrovi. Su un telefono
+      nuovo si rimette qui e il mazzo torna. <b>Vale come una password</b>: chi ce l’ha legge e
+      sovrascrive questo mazzo, quindi non va in giro.</p>
+      <button class="btn btn--ghost" data-act="sync-ora">Sincronizza adesso</button>
+      <button class="btn btn--ghost small" data-act="sync-stacca">Scollega questo dispositivo</button>
+      <p class="small muted">Si sincronizza da sola all’apertura e a fine sessione. Se studi lo
+      stesso codice su due dispositivi senza sincronizzare in mezzo, vince l’ultimo che chiude e
+      l’altra sessione si perde — l’app te lo dice quando succede.</p>
+    </div>`;
 }
 
 /**
@@ -2496,6 +2688,10 @@ render();
 /* I dati di questa app sono mesi di storia dei ripassi: si chiede al browser
  * di non buttarli via al primo giro di pulizie. */
 Store.requestPersistence();
+
+/* E se c'è un codice, si guarda subito se il server ha qualcosa di più recente:
+ * è il caso di chi riprende su un telefono nuovo, o dopo una pulizia. */
+sincronizza({ silenzioso: true });
 
 /*
  * Aggiornamenti: si annunciano, non si impongono.

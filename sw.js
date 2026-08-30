@@ -1,5 +1,5 @@
 /* Service worker: l'app resta utilizzabile offline dopo la prima visita. */
-const CACHE = 'frasi-v23';
+const CACHE = 'frasi-v24';
 
 /*
  * L'audio inciso sta in una cache SUA, e il numero di versione non la tocca.
@@ -33,6 +33,7 @@ const ASSETS = [
   'assets/js/goal.js',
   'assets/js/incisa.js',
   'assets/js/pronuncia.js',
+  'assets/js/sync.js',
   'assets/js/irt.js',
   'assets/js/optimizer.js',
   'assets/js/scheduler.js',
@@ -80,6 +81,14 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
+
+  /*
+    * L'API NON PASSA DI QUI. Il gestore qui sotto e' «prima la cache, poi la
+    * rete»: sul deposito dei progressi vorrebbe dire rispondere con un mazzo
+    * vecchio a chi sta chiedendo qual e' quello nuovo, che e' esattamente la
+    * domanda a cui non si puo' rispondere male.
+    */
+   if (url.pathname.startsWith('/api/')) return;
 
   const dove = isAudio(url) ? CACHE_AUDIO : CACHE;
 

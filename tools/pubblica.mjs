@@ -49,18 +49,45 @@ const AMMESSI = [
  */
 const HEADERS = `# Generato da tools/pubblica.mjs — non modificare a mano.
 
+# IL CODICE NON SI METTE IN CACHE, si rivalida.
+#
+# Con una scadenza vera (anche solo un'ora) dopo ogni pubblicazione i browser
+# continuano a servire i file vecchi finche' non scade, e il service worker
+# congela nella sua cache proprio quelli: l'aggiornamento arriva quando capita,
+# e intanto convivono moduli di due versioni diverse. «no-cache» NON vuol dire
+# «non conservare»: vuol dire «chiedi se e' cambiato», e la risposta e' un 304
+# vuoto quando non lo e'. Si paga una richiesta e si compra di sapere che cosa
+# sta girando.
+/index.html
+  Cache-Control: no-cache
+
 /sw.js
   Cache-Control: no-cache
   Service-Worker-Allowed: /
 
+/manifest.webmanifest
+  Cache-Control: no-cache
+
+/assets/js/*
+  Cache-Control: no-cache
+
+/assets/css/*
+  Cache-Control: no-cache
+
+# Le righe di pronuncia cambiano insieme al corpus, cioe' insieme al codice.
+/assets/pronuncia/*
+  Cache-Control: no-cache
+
+# QUESTE SI', e per una ragione opposta: 17 MB di incisioni che non cambiano
+# quasi mai, e riscaricarle a ogni visita si sente sul telefono. Non
+# «immutable» pero': se una frase cambia, la sua incisione cambia sotto lo
+# stesso indirizzo, e «immutable» la lascerebbe vecchia fino a svuotare il
+# browser.
 /assets/audio/*
   Cache-Control: public, max-age=604800
 
-/assets/pronuncia/*
-  Cache-Control: public, max-age=3600
-
-/assets/*
-  Cache-Control: public, max-age=3600
+/assets/icons/*
+  Cache-Control: public, max-age=604800
 `;
 
 async function conta(dir) {
@@ -80,8 +107,19 @@ async function conta(dir) {
   return { file, peso };
 }
 
-await rm(DIST, { recursive: true, force: true });
+/*
+ * Si svuota il CONTENUTO, non si rimuove la cartella.
+ *
+ * Su Windows basta che qualcosa tenga un handle su `dist/` — un server che la
+ * sta servendo, un antivirus che la sta guardando — perche' `rmdir` fallisca
+ * con EBUSY, e il build muoia per una ragione che non c'entra niente con il
+ * build. Il contenuto invece si cancella file per file senza problemi, e la
+ * cartella non ha bisogno di sparire: deve solo restare vuota.
+ */
 await mkdir(DIST, { recursive: true });
+for (const voce of await readdir(DIST)) {
+  await rm(join(DIST, voce), { recursive: true, force: true });
+}
 
 for (const nome of AMMESSI) {
   const da = join(RADICE, nome);

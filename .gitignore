@@ -4,3 +4,8 @@ tools/screenshots/
 tools/.venv/
 tools/__pycache__/
 dist/
+
+.dev.vars
+.wrangler/
+node_modules/
+wrangler.prova.jsonc

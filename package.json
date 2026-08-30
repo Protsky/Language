@@ -1,0 +1,15 @@
+{
+  "name": "frasi",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node tools/pubblica.mjs",
+    "dist": "node tools/pubblica.mjs",
+    "prova": "node tools/validate.mjs",
+    "dev": "wrangler dev",
+    "deploy": "node tools/pubblica.mjs && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}
