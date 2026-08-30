@@ -581,13 +581,27 @@ cd Language
 python3 -m http.server 8080     # poi apri http://localhost:8080/
 ```
 
-Il repository è **privato**, e GitHub Pages non pubblica da un repository
-privato con il piano gratuito: non c'è un indirizzo pubblico. Per averlo
-bisogna rendere pubblico il repository (Settings ▸ General ▸ Change visibility)
-e accendere Pages sul ramo `main`, oppure passare a GitHub Pro, che pubblica
-anche i privati ma dietro autenticazione.
+### L'indirizzo
 
-### Metterla online su Cloudflare Pages
+> **https://protsky.github.io/Language/**
+
+Il repository è pubblico e GitHub Pages serve il ramo `main`: l'indirizzo è
+fisso, si aggiorna a ogni push e funziona anche a computer spento. Prima l'app
+stava su un quick tunnel Cloudflare, il cui nome cambia a ogni riavvio: fra il
+29 e il 30 agosto 2026 è cambiato **cinque volte**, e siccome `localStorage` è
+legato all'origine, a ogni giro la storia dei ripassi ripartiva da zero e
+l'icona sulla schermata Home restava appesa a un indirizzo morto. Era il
+difetto più grosso dell'app, e non stava nel codice.
+
+Pages serve la **radice del ramo**, quindi online finisce anche ciò che non è
+l'app: `tools/`, questo README, la ROADMAP. Con un repository pubblico non
+nasconde niente che non sia già visibile, ma non è la stessa cosa che
+pubblicare la sola app: `node tools/pubblica.mjs` prepara `dist/` con solo ciò
+che serve (elenco di cose **ammesse**, non di divieti), ed è quello che si
+userebbe passando la sorgente di Pages a GitHub Actions, o a un altro
+servizio.
+
+### Pubblicare solo l'app, invece della radice del repo
 
 L'app è statica: pubblicarla è servire una cartella. `tools/pubblica.mjs`
 prepara quella cartella — `dist/` — e ci mette **solo l'app**: niente `tools/`,
@@ -597,15 +611,11 @@ affatto, che è più difficile da sbagliare. L'elenco è di cose **ammesse**, no
 di cose vietate: un file nuovo non passa finché non lo si aggiunge, e se ne
 accorge subito chi lo cercava.
 
-Nel pannello di Cloudflare Pages, collegando il repository:
-
-| campo | valore |
-| --- | --- |
-| Framework preset | None |
-| Build command | `node tools/pubblica.mjs` |
-| Build output directory | `dist` |
-
-Il repository resta **privato**: Pages pubblica il risultato, non il repo.
+Serve dove c'è un passo di costruzione: su Cloudflare Pages (preset *None*,
+build `node tools/pubblica.mjs`, output `dist`), oppure su GitHub Pages
+cambiando la sorgente da «ramo» a «GitHub Actions». Con la sorgente a ramo,
+com'è adesso, questo passaggio non viene eseguito e `dist/` resta solo il modo
+di vedere che cosa uscirebbe.
 
 `dist/_headers` porta con sé le intestazioni che qui fa nginx. La più
 importante è `sw.js` con `no-cache`: è il file che decide quando l'app si
@@ -622,9 +632,12 @@ cambiato cinque volte.
 
 ### Sull'iPhone
 
-1. Pubblica la cartella (per esempio con **GitHub Pages**).
-2. Apri l'indirizzo in Safari.
-3. *Condividi ▸ Aggiungi a Home*: da lì parte a schermo intero e funziona offline.
+1. Apri **https://protsky.github.io/Language/** in Safari.
+2. *Condividi ▸ Aggiungi a Home*: da lì parte a schermo intero e funziona
+   offline, incisioni comprese.
+
+L'indirizzo non cambia più, quindi l'icona continua a puntare allo stesso
+deposito: i ripassi si accumulano invece di ricominciare da capo.
 
 ### La voce: incisa, non sintetizzata sul momento
 
