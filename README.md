@@ -587,6 +587,39 @@ bisogna rendere pubblico il repository (Settings ▸ General ▸ Change visibili
 e accendere Pages sul ramo `main`, oppure passare a GitHub Pro, che pubblica
 anche i privati ma dietro autenticazione.
 
+### Metterla online su Cloudflare Pages
+
+L'app è statica: pubblicarla è servire una cartella. `tools/pubblica.mjs`
+prepara quella cartella — `dist/` — e ci mette **solo l'app**: niente `tools/`,
+niente README, niente dotfile. È la stessa regola dell'nginx dello studio, che
+su quei percorsi risponde 404; qui invece di nasconderli non si copiano
+affatto, che è più difficile da sbagliare. L'elenco è di cose **ammesse**, non
+di cose vietate: un file nuovo non passa finché non lo si aggiunge, e se ne
+accorge subito chi lo cercava.
+
+Nel pannello di Cloudflare Pages, collegando il repository:
+
+| campo | valore |
+| --- | --- |
+| Framework preset | None |
+| Build command | `node tools/pubblica.mjs` |
+| Build output directory | `dist` |
+
+Il repository resta **privato**: Pages pubblica il risultato, non il repo.
+
+`dist/_headers` porta con sé le intestazioni che qui fa nginx. La più
+importante è `sw.js` con `no-cache`: è il file che decide quando l'app si
+aggiorna, e servito da una copia vecchia l'avviso «c'è una versione nuova» non
+comparirebbe mai. L'audio dura una settimana — 17 MB che non cambiano quasi
+mai — ma non è `immutable`: se una frase cambia, la sua incisione cambia sotto
+lo stesso indirizzo.
+
+**Perché un indirizzo fisso conta più di quanto sembri.** `localStorage` è
+legato all'origine: su un tunnel effimero, che cambia nome a ogni riavvio, la
+storia dei ripassi riparte da zero ogni volta e l'icona sulla schermata Home
+resta appesa a un indirizzo morto. Fra il 29 e il 30 agosto 2026 l'indirizzo è
+cambiato cinque volte.
+
 ### Sull'iPhone
 
 1. Pubblica la cartella (per esempio con **GitHub Pages**).
