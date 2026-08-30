@@ -583,23 +583,30 @@ python3 -m http.server 8080     # poi apri http://localhost:8080/
 
 ### L'indirizzo
 
-> **https://protsky.github.io/Language/**
+> **https://language.donati.workers.dev/**
 
-Il repository è pubblico e GitHub Pages serve il ramo `main`: l'indirizzo è
-fisso, si aggiorna a ogni push e funziona anche a computer spento. Prima l'app
-stava su un quick tunnel Cloudflare, il cui nome cambia a ogni riavvio: fra il
+Un Worker Cloudflare con gli asset statici, costruito dal ramo `main` a ogni
+push. L'indirizzo è fisso, e il sito funziona anche a computer spento.
+
+Prima l'app stava su un quick tunnel, il cui nome cambia a ogni riavvio: fra il
 29 e il 30 agosto 2026 è cambiato **cinque volte**, e siccome `localStorage` è
 legato all'origine, a ogni giro la storia dei ripassi ripartiva da zero e
 l'icona sulla schermata Home restava appesa a un indirizzo morto. Era il
 difetto più grosso dell'app, e non stava nel codice.
 
-Pages serve la **radice del ramo**, quindi online finisce anche ciò che non è
-l'app: `tools/`, questo README, la ROADMAP. Con un repository pubblico non
-nasconde niente che non sia già visibile, ma non è la stessa cosa che
-pubblicare la sola app: `node tools/pubblica.mjs` prepara `dist/` con solo ciò
-che serve (elenco di cose **ammesse**, non di divieti), ed è quello che si
-userebbe passando la sorgente di Pages a GitHub Actions, o a un altro
-servizio.
+**Un indirizzo solo, però.** Due indirizzi che servono la stessa app sono due
+origini, quindi due mazzi separati: chi aggiunge alla Home l'uno e poi apre
+l'altro crede di aver perso tutto. Quando se ne accende un secondo (GitHub
+Pages, un tunnel di prova) va spento il primo, o dichiarato quale dei due è
+quello vero.
+
+**Che cosa esce, oggi.** Il deploy serve la **radice del repository**, quindi
+online c'è anche ciò che non è l'app: `tools/`, questo README, la ROADMAP.
+`node tools/pubblica.mjs` prepara `dist/` con solo ciò che serve — elenco di
+cose **ammesse**, non di divieti — ma perché venga usato bisogna dire al
+progetto Cloudflare che la cartella degli asset è `dist` e il comando di
+costruzione è quello. Finché non lo si fa, `dist/` resta il modo di vedere che
+cosa uscirebbe.
 
 ### Pubblicare solo l'app, invece della radice del repo
 
@@ -611,11 +618,10 @@ affatto, che è più difficile da sbagliare. L'elenco è di cose **ammesse**, no
 di cose vietate: un file nuovo non passa finché non lo si aggiunge, e se ne
 accorge subito chi lo cercava.
 
-Serve dove c'è un passo di costruzione: su Cloudflare Pages (preset *None*,
-build `node tools/pubblica.mjs`, output `dist`), oppure su GitHub Pages
-cambiando la sorgente da «ramo» a «GitHub Actions». Con la sorgente a ramo,
-com'è adesso, questo passaggio non viene eseguito e `dist/` resta solo il modo
-di vedere che cosa uscirebbe.
+Si accende dichiarandolo al progetto Cloudflare — comando di costruzione
+`node tools/pubblica.mjs`, cartella degli asset `dist` — oppure mettendo la
+stessa cosa in un `wrangler.jsonc` nel repository, che ha il vantaggio di
+essere versionata insieme al resto invece di vivere in un pannello.
 
 `dist/_headers` porta con sé le intestazioni che qui fa nginx. La più
 importante è `sw.js` con `no-cache`: è il file che decide quando l'app si
@@ -632,7 +638,7 @@ cambiato cinque volte.
 
 ### Sull'iPhone
 
-1. Apri **https://protsky.github.io/Language/** in Safari.
+1. Apri **https://language.donati.workers.dev/** in Safari.
 2. *Condividi ▸ Aggiungi a Home*: da lì parte a schermo intero e funziona
    offline, incisioni comprese.
 
