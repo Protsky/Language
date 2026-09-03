@@ -572,13 +572,16 @@ function paintPrior() {
 
 function startExam(priorId = 'boh') {
   const prior = Irt.priorOf(priorId);
-  exam = { responses: [], asked: [], prior, est: { theta: prior.mean, se: 1 }, item: null, locked: false };
+  exam = { responses: [], asked: [], prior, est: { theta: prior.mean, se: 1 }, item: null, locked: false, seed: Date.now() };
   nextExamItem();
   go('test');
 }
 
+/* La banca scrive la risposta giusta quasi sempre per prima: sullo schermo
+ * l'item passa da buildExam, che rimescola le opzioni e rimappa l'indice. */
 function nextExamItem() {
-  exam.item = Irt.pickNext(lang.placement, exam.asked, exam.est.theta);
+  const it = Irt.pickNext(lang.placement, exam.asked, exam.est.theta);
+  exam.item = it && Ex.buildExam(it, `${exam.seed}|${it.id}`);
 }
 
 function paintTest() {

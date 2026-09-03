@@ -103,6 +103,30 @@ for (const lang of LANGS) {
   }
   ok('banca del test distribuita su tutti i livelli');
 
+  /*
+   * Nella banca la risposta giusta sta quasi sempre per prima (è l'ordine
+   * comodo per chi scrive gli item, e ci resta): allo schermo l'item passa da
+   * buildExam, che rimescola. Qui si pretende che il rimescolo non perda la
+   * risposta per strada e che la posizione giusta cada dappertutto — servita
+   * nell'ordine dei dati, il primo bottone vinceva il test.
+   */
+  {
+    const dove = [0, 0, 0, 0];
+    for (const seme of ['a', 'b', 'c']) {
+      for (const it of lang.placement) {
+        const ex = Ex.buildExam(it, `${seme}|${it.id}`);
+        if (ex.options[ex.correct] !== it.options[it.correct]) fail(`${it.id}: il rimescolo perde la risposta giusta`);
+        if ([...ex.options].sort().join('\u0000') !== [...it.options].sort().join('\u0000')) fail(`${it.id}: il rimescolo cambia le opzioni`);
+        dove[ex.correct]++;
+      }
+    }
+    const totale = dove.reduce((a, b) => a + b, 0);
+    dove.forEach((n, i) => {
+      expect(n / totale > 0.1, `[${lang.code}] test: la risposta giusta cade in posizione ${i + 1} solo ${n} volte su ${totale}`);
+    });
+    ok('la risposta giusta del test, rimescolata, cade in tutte le posizioni');
+  }
+
   expect(lang.rate > 0.5 && lang.rate <= 1, `[${lang.code}] velocità di lettura implausibile (${lang.rate})`);
 }
 

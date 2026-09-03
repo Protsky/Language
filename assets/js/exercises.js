@@ -228,6 +228,22 @@ export function buildCloze(sentence, card, seed) {
   };
 }
 
+/* --------------------------- test di livello ----------------------------- */
+
+/**
+ * Nei corpus la risposta giusta è scritta quasi sempre per prima: è l'ordine
+ * comodo per chi aggiunge item, e i dati restano così. Ma servita nell'ordine
+ * del file faceva del test un quiz dove il primo bottone vince — su russo e
+ * svizzero tedesco vinceva sempre, e la stima θ premiava chi tocca in alto.
+ * Le opzioni si mescolano qui, all'uscita verso lo schermo: stesso generatore
+ * seminato degli altri esercizi, così l'ordine è stabile dentro la domanda
+ * (un ridisegno non rimescola sotto il dito) ma cambia da un esame all'altro.
+ */
+export function buildExam(item, seed) {
+  const options = shuffle(item.options, seeded(`${seed}|exam`));
+  return { ...item, options, correct: options.indexOf(item.options[item.correct]) };
+}
+
 /* --------------------------- voto automatico ----------------------------- */
 
 /**
