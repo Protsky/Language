@@ -932,7 +932,8 @@ function paintPath() {
       <div class="card card--flat path">${rows}</div>
       <p class="small muted">Un’unità apre la successiva quando ne hai imparato almeno
         il ${Math.round(Units.UNLOCK * 100)}% — o quando le hai viste tutte.
-        Tocca un’unità aperta per farne una sessione mirata.</p>
+        Tocca un’unità aperta per farne una sessione mirata: frasi nuove e
+        gradini successivi, tutti dentro quell’unità.</p>
     </section>`);
   on(el, '[data-unit]', 'click', (e) => startSession({ unit: e.currentTarget.dataset.unit }));
   view.append(el);
@@ -941,9 +942,11 @@ function paintPath() {
 /* ------------------------------- sessione -------------------------------- */
 
 /**
- * `unit` limita le frasi nuove a una sola unità: serve quando si sceglie
- * un'unità a mano dal percorso. I ripassi in scadenza entrano lo stesso —
- * saltarli per fare un'unità a piacere sarebbe barare con le scadenze.
+ * `unit` limita a una sola unità tutto il materiale nuovo: le frasi mai viste
+ * e i gradini successivi di quelle già incontrate lì dentro. Serve quando si
+ * sceglie un'unità a mano dal percorso. I ripassi in scadenza entrano lo
+ * stesso — saltarli per fare un'unità a piacere sarebbe barare con le
+ * scadenze.
  */
 function startSession({ extraNew = 0, unit = null } = {}) {
   daSincronizzare = true;

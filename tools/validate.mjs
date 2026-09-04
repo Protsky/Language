@@ -897,6 +897,50 @@ for (const lang of LANGS) {
     `l'unità scelta a mano dà frasi di altre unità: ${only.filter((id) => !ids.has(id)).join(', ')}`);
   ok(`un'unità scelta a mano (${hand.id}) dà solo le sue frasi, anche a chi è di livello più alto`);
 
+  /*
+   * ...e le fa salire tutta la scala, non solo il primo gradino.
+   *
+   * Il difetto stava qui: dentro una sessione mirata i gradini successivi
+   * erano spenti, le frasi nuove riempivano il budget da sole e la sezione
+   * restava un riconoscimento dietro l'altro per giorni. Si controlla come lo
+   * si vedeva: dieci giorni di risposte giuste su quell'unità, contando i tipi
+   * di carta introdotti.
+   */
+  {
+    const solo = { profile: { theta: null }, cards: {}, log: [] };
+    const step = Fsrs.createScheduler({ requestRetention: 0.9 });
+    const seen = new Set();
+    const outside = new Set();
+    const ids = new Set(hand.sentences.map((s) => s.id));
+    let clock = Date.now();
+    for (let d = 0; d < 10; d++) {
+      const { queue } = buildQueue({
+        lang,
+        deck: solo,
+        settings: { newPerDay: 8, maxReviews: 120, direction: 'produce', domains: [], unit: hand.id },
+        now: clock,
+        random: () => 0.5,
+      });
+      for (const card of queue) {
+        const [sid, type] = card.id.split('|');
+        if (card.state === 'new') {
+          seen.add(type);
+          if (!ids.has(sid)) outside.add(sid);
+        }
+        /* due passi brevi: la carta esce dall'apprendimento come in sessione */
+        let done = step.review(card, Fsrs.GOOD, clock);
+        if (done.state !== 'review') done = step.review(done, Fsrs.GOOD, clock + 11 * 60000);
+        solo.cards[done.id] = done;
+      }
+      clock += DAY;
+    }
+    expect(seen.size === TYPES.length,
+      `una sezione studiata dieci giorni dà solo ${[...seen].join(', ')} invece dei quattro gradini`);
+    expect(outside.size === 0,
+      `la sezione ha introdotto ${outside.size} frasi di altre unità: ${[...outside].join(', ')}`);
+    ok(`dieci giorni sulla stessa sezione danno tutti e quattro i gradini (${ladder('produce').join(' → ')}), senza uscire dall'unità`);
+  }
+
   // il settore scelto riordina il percorso invece di essere ignorato
   const plain = Units.buildUnits(lang, []);
   const work = Units.buildUnits(lang, ['lavoro']);

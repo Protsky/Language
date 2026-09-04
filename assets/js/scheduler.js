@@ -168,9 +168,16 @@ export function rankNew(lang, deck, settings, theta, random = Math.random) {
 
   const candidates = lang.sentences.filter((s) => !introduced.has(s.id));
   /* Se il percorso non lascia niente di nuovo (unità tutte finite, corpus
-   * esaurito) si torna al corpus intero: mai una coda vuota per colpa nostra. */
+   * esaurito) si torna al corpus intero: mai una coda vuota per colpa nostra.
+   *
+   * Con un'unità scelta A MANO il ripiego non vale, ed è un difetto che si
+   * vedeva sullo schermo: finite le frasi di quell'unità, il ripiego pescava
+   * frasi qualsiasi del corpus — sempre nuove, quindi sempre riconoscimenti —
+   * e la sessione «fammi questa sezione» restava per giorni un solo tipo di
+   * esercizio. Quando l'unità è esaurita la cosa giusta da dare non è un'altra
+   * frase: sono i gradini successivi delle frasi che ci sono già dentro. */
   const open = candidates.filter((s) => pool.allowed.has(s.id));
-  const scored = (open.length ? open : candidates).map((s) => {
+  const scored = (open.length || settings.unit ? open : candidates).map((s) => {
     const known = grammar.get(s.g);
     const grammarBonus = !known ? 0.15 : known.strength < SHAKY ? 0.14 : 0;
     return { s, score: fit(s.lv, user) + domainBonus(s, settings.domains) + grammarBonus };
@@ -240,10 +247,23 @@ export function buildQueue({ lang, deck, settings, introducedToday = 0, now = Da
   const budget = Math.max(0, settings.newPerDay - introducedToday);
   const busy = new Set(reviews.map((c) => splitId(c.id).sid));
 
-  const unlocks = pendingUnlocks(lang, deck, settings.direction).filter((u) => !busy.has(u.sid));
-  /* Se si è scelta un'unità a mano, il budget va tutto lì: i gradini
-   * successivi di altre frasi aspettano la sessione normale. */
-  const deepSlots = settings.unit ? 0 : Math.min(unlocks.length, Math.ceil(budget * 0.6));
+  /*
+   * Se si è scelta un'unità a mano i gradini successivi si RESTRINGONO alle sue
+   * frasi — quelli di altre unità aspettano la sessione normale — ma non si
+   * spengono, com'era prima. Spegnerli sembrava coerente («il budget va tutto
+   * all'unità») e in pratica affamava la sezione di tutto ciò che non è il
+   * primo gradino: le frasi nuove riempivano il budget da sole, gli sblocchi
+   * arrivavano dopo ed erano sempre tagliati fuori, e chi studiava una sezione
+   * vedeva soltanto riconoscimenti. Comporre, completare e produrre esistono
+   * per essere fatti su quelle stesse frasi: è la scala di Nation, e una
+   * sezione che si ferma al primo gradino non la sale.
+   */
+  const unitOnly = settings.unit
+    ? newPool(lang, deck, levelScore(deck.profile?.theta), settings.domains, settings.unit).allowed
+    : null;
+  const unlocks = pendingUnlocks(lang, deck, settings.direction)
+    .filter((u) => !busy.has(u.sid) && (!unitOnly || unitOnly.has(u.sid)));
+  const deepSlots = Math.min(unlocks.length, Math.ceil(budget * 0.6));
   const fresh = [];
 
   for (const u of unlocks.slice(0, deepSlots)) {
@@ -261,6 +281,19 @@ export function buildQueue({ lang, deck, settings, introducedToday = 0, now = Da
     if (busy.has(u.sid)) continue;
     fresh.push(newCard(cardId(u.sid, u.type), { sid: u.sid, type: u.type }));
     busy.add(u.sid);
+  }
+
+  /* Sezione finita davvero — nessuna frase nuova, nessun gradino da aprire,
+   * niente in scadenza — e allora il tocco sull'unità aprirebbe il vuoto. In
+   * quel caso soltanto si torna alla sessione normale: è il ripiego che il
+   * percorso ha sempre avuto, rimesso dove serve invece che davanti a tutto. */
+  if (settings.unit && !reviews.length && !fresh.length) {
+    for (const s of rankNew(lang, deck, { ...settings, unit: null }, deck.profile?.theta, random)) {
+      if (fresh.length >= budget) break;
+      if (busy.has(s.id)) continue;
+      fresh.push(newCard(cardId(s.id, 'comp'), { sid: s.id, type: 'comp' }));
+      busy.add(s.id);
+    }
   }
 
   return {
