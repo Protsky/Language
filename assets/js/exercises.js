@@ -51,6 +51,42 @@ function shuffle(items, rnd) {
 
 const pickSome = (pool, n, rnd) => shuffle(pool, rnd).slice(0, n);
 
+/* --------------------------- parole di contenuto ------------------------- */
+
+/*
+ * Le parole che portano il significato, senza quelle che ci sono in ogni
+ * frase. L'elenco è italiano perché serve sul lato che chi studia legge di
+ * sicuro; per la lingua straniera basta la lunghezza, che taglia via articoli
+ * e preposizioni in tutte e cinque senza doverne scrivere l'elenco.
+ */
+const VUOTE = new Set(('il lo la i gli le un uno una di a da in con su per tra fra e o ma che non mi ti si ci vi ne '
+  + 'è sono ho hai ha abbiamo avete hanno del della dei delle al alla ai alle dal dalla nel nella sul sulla '
+  + 'come cosa dove quando se lei lui io tu noi voi loro questo questa quello quella qui qua lì là').split(' '));
+
+const parole = (text, stop) => new Set(
+  text.toLowerCase().replace(/[^\p{L}\s']/gu, ' ').split(/\s+/)
+    .filter((w) => w.length > 2 && !(stop && stop.has(w))));
+
+/* Le parole di ogni frase si calcolano una volta sola: `confusables` gira su
+ * tutto il corpus a ogni carta, e rifarlo ogni volta si sentirebbe. */
+const cacheParole = new Map();
+function vocabolario(s) {
+  let row = cacheParole.get(s.id);
+  if (!row) {
+    row = { it: parole(s.it, VUOTE), text: parole(s.text, null) };
+    cacheParole.set(s.id, row);
+  }
+  return row;
+}
+
+/** Quanto due insiemi di parole si somigliano (Jaccard, 0 = niente in comune). */
+function overlap(a, b) {
+  if (!a.size || !b.size) return 0;
+  let inter = 0;
+  for (const w of a) if (b.has(w)) inter += 1;
+  return inter / (a.size + b.size - inter);
+}
+
 /**
  * Da dove vengono i distrattori, e perché non basta «frasi di livello vicino».
  *
@@ -61,41 +97,61 @@ const pickSome = (pool, n, rnd) => shuffle(pool, rnd).slice(0, n);
  * solida quando non lo è: è la stessa illusione di competenza contro cui è
  * costruito tutto il resto dell'app, entrata dalla porta di servizio.
  *
- * Quindi si preferiscono, in ordine:
- *   1. le frasi con LO STESSO punto grammaticale — sono le coppie minime che
- *      il corpus contiene apposta (`wo` contro `wohin`, `ser` contro `estar`):
- *      per scartarle bisogna sapere la regola, che è esattamente ciò che si
- *      sta esercitando;
- *   2. le frasi dello stesso settore e livello vicino — stesso vocabolario,
- *      quindi la scorciatoia lessicale non funziona;
- *   3. il resto del livello vicino, come prima.
+ * Fino al 04/09/2026 qui si preferivano le frasi con lo STESSO punto
+ * grammaticale, e si dava per scontato che bastasse. Misurato sul corpus, non
+ * bastava per niente: il punto grammaticale era lo stesso nel 94% dei casi, ma
+ * nel 94% dei casi le due frasi non avevano NEMMENO UNA parola di contenuto in
+ * comune. «Stessa regola» e «stesse parole» sono due cose diverse, e la
+ * scorciatoia che si voleva chiudere passa dalle parole: se le altre tre
+ * opzioni parlano di treni e la tua di caffè, riconoscere «Kaffee» basta e
+ * avanza.
  *
- * È il richiamo sotto interferenza già rivendicato per l'esercizio Abbina,
- * portato dove finora non c'era.
+ * Adesso i due criteri pesano insieme, e il vocabolario pesa di più:
+ *   - stesso punto grammaticale (+1): la coppia minima resta la cosa migliore
+ *     quando c'è (`wo` contro `wohin`, `ser` contro `estar`);
+ *   - parole in comune (fino a +4, contate su ENTRAMBI i lati): è ciò che
+ *     toglie la scorciatoia, in tutte e due le direzioni dell'esercizio;
+ *   - stesso settore (+0.3) e livello vicino (-0.15 per gradino di distanza).
+ *
+ * Le tre opzioni escono sorteggiate fra le prime CINQUE e non prese in cima,
+ * altrimenti una carta riproporrebbe per sempre le stesse tre. Costa qualche
+ * punto di vicinanza e in cambio la domanda non si impara a memoria come
+ * figura.
+ *
+ * Misurato sui cinque corpus, prima e dopo: distrattori senza NEMMENO UNA
+ * parola in comune con la risposta giusta — né in italiano né nella lingua —
+ * dal 71% al 34%; guardando il solo lato italiano, quello che chi comincia
+ * legge di sicuro, dal 93% al 72%. Il punto grammaticale si perde in cambio
+ * (dal 93% al 65%): è il baratto voluto, perché la regola condivisa non
+ * chiudeva la scorciatoia e il vocabolario condiviso sì.
  */
+const REGOLA = 1;      // peso dello stesso punto grammaticale
+const LESSICO = 4;     // peso delle parole in comune
+const SORTEGGIO = 5;   // fra quanti si sorteggiano le tre opzioni
+
 function confusables(lang, sentence, rnd, limit = 40) {
   const target = levelIndex(sentence.lv);
-  const pool = lang.sentences.filter((s) => s.id !== sentence.id);
+  const mine = vocabolario(sentence);
 
-  const sameRule = pool.filter((s) => s.g === sentence.g);
-  const taken = new Set(sameRule.map((s) => s.id));
-
-  const near = pool.filter((s) => !taken.has(s.id) && Math.abs(levelIndex(s.lv) - target) <= 1);
-  const sameDomain = near.filter((s) => s.dom.some((d) => sentence.dom.includes(d)));
-  const domainIds = new Set(sameDomain.map((s) => s.id));
-  const otherNear = near.filter((s) => !domainIds.has(s.id));
-
-  const ranked = [
-    ...shuffle(sameRule, rnd),
-    ...shuffle(sameDomain, rnd),
-    ...shuffle(otherNear, rnd),
-  ];
-  /* Se il corpus non basta — punto grammaticale con un esempio solo, livello
-   * quasi vuoto — si allarga a tutto: meglio un distrattore facile che tre
-   * opzioni invece di quattro. */
-  if (ranked.length >= limit) return ranked.slice(0, limit);
-  const rest = pool.filter((s) => !ranked.some((r) => r.id === s.id));
-  return [...ranked, ...shuffle(rest, rnd)].slice(0, limit);
+  const scored = [];
+  for (const s of lang.sentences) {
+    if (s.id === sentence.id) continue;
+    const his = vocabolario(s);
+    const vicino = overlap(mine.it, his.it) + overlap(mine.text, his.text);
+    scored.push({
+      s,
+      score: (s.g === sentence.g ? REGOLA : 0)
+        + LESSICO * vicino
+        + (s.dom.some((d) => sentence.dom.includes(d)) ? 0.3 : 0)
+        - 0.15 * Math.abs(levelIndex(s.lv) - target),
+    });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  const rows = scored.slice(0, limit).map((x) => x.s);
+  /* I migliori mescolati davanti, il resto in ordine dietro: se le prime
+   * scelte danno opzioni ripetute o parole inservibili, chi chiama continua a
+   * scendere per qualità. */
+  return [...shuffle(rows.slice(0, SORTEGGIO), rnd), ...rows.slice(SORTEGGIO)];
 }
 
 /* ------------------------ 1. riconosci il senso ------------------------- */

@@ -192,6 +192,26 @@ export function rankNew(lang, deck, settings, theta, random = Math.random) {
   return [...weightedOrder(inUnit, random), ...weightedOrder(rest, random)].map((x) => x.s);
 }
 
+/**
+ * Il gradino che si apre subito dopo questa carta, se se n'è appena meritato
+ * uno. Restituisce la carta nuova da mettere in coda, oppure null.
+ *
+ * Serve dentro la sessione: la coda si costruisce una volta sola all'inizio,
+ * quindi una frase che esce dall'apprendimento a metà strada vedeva il proprio
+ * gradino successivo solo il giorno dopo. Su una lingua appena cominciata
+ * questo voleva dire una prima sessione fatta di soli riconoscimenti.
+ */
+export function nextStepCard(deck, id, direction) {
+  const { sid, type } = splitId(id);
+  const order = ladder(direction);
+  const step = order[order.indexOf(type) + 1];
+  if (!step) return null;
+  const stepId = cardId(sid, step);
+  if (deck.cards[stepId]) return null;            // esiste già: la sua scadenza è di FSRS
+  if (!unlocked(deck, sid, step, direction)) return null;
+  return newCard(stepId, { sid, type: step });
+}
+
 /** Carte già introdotte il cui passaggio successivo si è appena sbloccato. */
 export function pendingUnlocks(lang, deck, direction) {
   const order = ladder(direction);

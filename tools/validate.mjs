@@ -8,7 +8,7 @@ import { LANGS, DOMAINS, LEVELS } from '../assets/js/corpus.js';
 import * as Fsrs from '../assets/js/fsrs.js';
 import * as Irt from '../assets/js/irt.js';
 import { diff, suggestGrade, normalize } from '../assets/js/check.js';
-import { buildQueue, cardId, unlocked, ladder, TYPES, levelScore, matchable, MATCH_MIN } from '../assets/js/scheduler.js';
+import { buildQueue, cardId, splitId, nextStepCard, unlocked, ladder, TYPES, levelScore, matchable, MATCH_MIN } from '../assets/js/scheduler.js';
 import * as Units from '../assets/js/units.js';
 import { SITUATIONS, words as wordCount, overlap } from './situations.mjs';
 import * as Ex from '../assets/js/exercises.js';
@@ -496,25 +496,56 @@ console.log('\n[exercises] esercizi che si correggono da soli');
   ok(`i buchi si spostano sulle parole già sbagliate ("${victim}"), a parità di quantità`);
 
   /*
-   * I distrattori vengono dallo stesso punto grammaticale, quando il corpus ne
-   * ha abbastanza. E' cio' che rende il riconoscimento un esercizio invece che
-   * una caccia alla parola nota.
+   * I distrattori devono togliere la scorciatoia, e la scorciatoia passa dalle
+   * PAROLE. Fino al 04/09/2026 qui si chiedeva soltanto che venissero dallo
+   * stesso punto grammaticale, e il controllo passava al 100% mentre il 71%
+   * dei distrattori non aveva nemmeno una parola di contenuto in comune con la
+   * risposta giusta: bastava riconoscerne una per azzeccare senza sapere
+   * niente della regola. Adesso si misura quello, con il sorteggio a caso come
+   * metro di paragone — un criterio che non batte il caso non è un criterio.
    */
-  for (const l of LANGS) {
-    const byRule = new Map();
-    for (const s of l.sentences) byRule.set(s.g, (byRule.get(s.g) || 0) + 1);
-    const byText = new Map(l.sentences.map((s) => [s.text, s]));
-    let checked = 0;
-    let impure = 0;
-    for (const s of l.sentences) {
-      if ((byRule.get(s.g) || 0) < 4) continue;   // servono almeno tre altri esempi
-      checked++;
-      const choice = Ex.buildChoice(s, l, `${s.id}|0`, 'produce');
-      const wrong = choice.options.filter((_, i) => i !== choice.correct);
-      if (!wrong.every((t) => byText.get(t)?.g === s.g)) impure++;
+  {
+    const VUOTE = new Set(('il lo la i gli le un uno una di a da in con su per tra fra e o ma che non mi ti si ci vi '
+      + 'ne è sono ho hai ha abbiamo avete hanno del della dei delle al alla ai alle dal dalla nel nella sul sulla '
+      + 'come cosa dove quando se lei lui io tu noi voi loro questo questa quello quella qui qua lì là').split(' '));
+    const parole = (text, stop) => new Set(text.toLowerCase().replace(/[^\p{L}\s']/gu, ' ').split(/\s+/)
+      .filter((w) => w.length > 2 && !(stop && stop.has(w))));
+    const condivide = (a, b) => {
+      const it = parole(a.it, VUOTE);
+      const tx = parole(a.text, null);
+      return [...parole(b.it, VUOTE)].some((w) => it.has(w)) || [...parole(b.text, null)].some((w) => tx.has(w));
+    };
+
+    let muti = 0;        // distrattori senza una sola parola in comune
+    let regola = 0;      // distrattori che tengono il punto grammaticale
+    let casuali = 0;     // gli stessi conti su tre frasi prese a caso
+    let n = 0;
+    for (const l of LANGS) {
+      const byText = new Map(l.sentences.map((s) => [s.text, s]));
+      let seed = 4242;
+      const rand = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+      for (const s of l.sentences) {
+        const choice = Ex.buildChoice(s, l, `${s.id}|0`, 'produce');
+        for (const [i, opt] of choice.options.entries()) {
+          if (i === choice.correct) continue;
+          const other = byText.get(opt);
+          if (!other) continue;
+          n += 1;
+          if (!condivide(s, other)) muti += 1;
+          if (other.g === s.g) regola += 1;
+          const sorteggiata = l.sentences[Math.floor(rand() * l.sentences.length)];
+          if (sorteggiata.id !== s.id && !condivide(s, sorteggiata)) casuali += 1;
+        }
+      }
     }
-    expect(impure === 0, `[${l.code}] ${impure} frasi su ${checked} hanno distrattori di un'altra regola`);
-    ok(`[${l.code}] ${checked} frasi con abbastanza esempi: i tre distrattori vengono tutti dalla stessa regola`);
+    const muto = muti / n;
+    const caso = casuali / n;
+    expect(muto <= 0.45, `il ${Math.round(muto * 100)}% dei distrattori non ha una parola in comune con la risposta`);
+    expect(caso - muto >= 0.25,
+      `scegliere i distrattori vale poco più che sorteggiarli: ${Math.round(muto * 100)}% contro ${Math.round(caso * 100)}%`);
+    expect(regola / n >= 0.5, `solo il ${Math.round((regola / n) * 100)}% dei distrattori tiene il punto grammaticale`);
+    ok(`distrattori senza parole in comune: ${Math.round(muto * 100)}% contro il ${Math.round(caso * 100)}% del sorteggio, `
+      + `e il ${Math.round((regola / n) * 100)}% tiene la regola (${n} distrattori sulle cinque lingue)`);
   }
 
   // stesso seme, stesso esercizio: niente sorprese fra un render e l'altro
@@ -719,6 +750,64 @@ console.log('\n[scheduler] costruzione della sessione');
   }).queue.map((c) => c.id.split('|')[1]);
   expect(nextUp.includes('prod'), `dopo il riconoscimento non arriva la produzione: ${nextUp}`);
   ok('con l’obiettivo "parlare" la produzione è il secondo gradino');
+
+  /*
+   * La prima sessione di una lingua nuova non è tutta riconoscimento.
+   *
+   * Si rifà quello che fa l'app: risposta giusta a ogni carta, rientro in coda
+   * finché è in apprendimento, e il gradino successivo aperto appena la carta
+   * arriva in ripasso. Si controlla che i tipi visti siano più di uno, che il
+   * tetto tenga, e soprattutto che fra una frase e il suo gradino successivo
+   * passino altre carte: aprirlo subito dopo sarebbe copiare, non richiamare.
+   */
+  {
+    const day1 = { profile: { theta: null }, cards: {}, log: [] };
+    const sch = Fsrs.createScheduler({ requestRetention: 0.9 });
+    const cfg = { newPerDay: 8, maxReviews: 120, direction: 'produce', domains: [] };
+    const cap = Math.ceil(cfg.newPerDay / 2);
+    const { queue } = buildQueue({ lang, deck: day1, settings: cfg, random: () => 0.5 });
+    const start = queue.length;
+
+    const seen = [];
+    const at = new Map();      // dove è stata vista ogni carta, per misurare le distanze
+    let opened = 0;
+    let clock = Date.now();
+    for (let i = 0; i < queue.length && i < 400; i++) {
+      const card = queue[i];
+      seen.push(splitId(card.id).type);
+      at.set(card.id, i);
+      const next = sch.review(card, Fsrs.GOOD, clock);
+      day1.cards[next.id] = next;
+      if (next.state === 'learning' || next.state === 'relearning') {
+        queue.splice(Math.min(i + 3, queue.length), 0, next);
+      } else if (card.state === 'new' || card.state === 'learning') {
+        const step = nextStepCard(day1, card.id, cfg.direction);
+        if (step && opened < cap && !queue.some((c) => c.id === step.id)) {
+          queue.push(step);
+          opened += 1;
+        }
+      }
+      clock += 60000;
+    }
+
+    const kinds = new Set(seen);
+    expect(kinds.size >= 2, `la prima sessione mostra un solo tipo di esercizio: ${[...kinds].join(', ')}`);
+    expect(opened <= cap, `la sessione ha aperto ${opened} gradini in più, oltre il tetto di ${cap}`);
+    const order = ladder(cfg.direction);
+    const distances = [];
+    for (const [id, pos] of at) {
+      const { sid, type } = splitId(id);
+      const i = order.indexOf(type);
+      if (i < 1) continue;
+      const before = at.get(cardId(sid, order[i - 1]));
+      if (before !== undefined) distances.push(pos - before);
+    }
+    expect(distances.length > 0, 'nessun gradino successivo è entrato nella prima sessione');
+    expect(Math.min(...distances) >= 4,
+      `un gradino successivo arriva a ${Math.min(...distances)} carte dal suo riconoscimento: troppo vicino`);
+    ok(`la prima sessione parte da ${start} carte e ne mostra ${kinds.size} tipi (${[...kinds].join(', ')}), `
+      + `${opened} gradini aperti, il più vicino a ${Math.min(...distances)} carte di distanza`);
+  }
 
   // i ripassi in scadenza precedono le novità e restano mescolati
   const deck2 = { profile: { theta: 0 }, cards: {}, log: [] };
