@@ -10,6 +10,8 @@ import { mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
+import { DOMAINS } from '../assets/js/corpus.js';
+import { DE } from '../assets/js/corpus-de.js';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const SHOTS = join(ROOT, 'tools', 'screenshots');
@@ -64,9 +66,22 @@ const context = await browser.newContext({
 });
 const page = await context.newPage();
 
+/*
+ * Errori raccolti per il controllo finale. Restano fuori i fallimenti di rete
+ * verso l'ESTERNO: la prova stacca la voce online apposta, per vedere il
+ * ripiego, e in una macchina senza uscita (o dietro un proxy con la sua
+ * autorità) quel tentativo lascia sempre un "Failed to load resource" che non
+ * è un errore dell'app. Tutto ciò che viene dal sito in prova resta contato,
+ * 404 degli asset compresi.
+ */
 const errors = [];
+const nostro = (url) => !url || url.startsWith(BASE) || url.startsWith('http://localhost') || url.startsWith('blob:');
 page.on('pageerror', (e) => errors.push(String(e)));
-page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+page.on('console', (m) => {
+  if (m.type() !== 'error') return;
+  if (!nostro(m.location()?.url)) return;
+  errors.push(m.text());
+});
 
 const tap = async (selector) => { await page.click(selector); await page.waitForTimeout(140); };
 const shot = (name) => page.screenshot({ path: join(SHOTS, `${name}.png`) });
@@ -80,6 +95,14 @@ console.log('\n▸ Scelta della lingua');
 await tap('[data-act="start"]');
 check('cinque lingue disponibili', (await page.locator('[data-lang]').count()) === 5);
 await tap('[data-lang="de"]');
+
+/* Fra la lingua e il test c'è la stima di partenza ("Quanto conosci il
+ * tedesco adesso?"): la prova si fermava qui ad aspettare una domanda che non
+ * poteva arrivare, perché nessuno aveva risposto a questa. */
+console.log('\n▸ Stima di partenza');
+await page.waitForSelector('[data-prior]');
+check('cinque punti di partenza', (await page.locator('[data-prior]').count()) === 5);
+await tap('[data-prior="boh"]');
 
 console.log('\n▸ Test di livello');
 await page.waitForSelector('.prompt');
@@ -104,7 +127,7 @@ await shot('3-livello');
 
 console.log('\n▸ Settore');
 await tap('[data-act="next"]');
-check('sei settori proposti', (await page.locator('[data-dom]').count()) === 6);
+check(`i ${DOMAINS.length} settori proposti`, (await page.locator('[data-dom]').count()) === DOMAINS.length);
 await tap('[data-dom="lavoro"]');
 check('settore selezionato', (await page.locator('.chip-card--on').count()) === 1);
 await tap('[data-act="done"]');
@@ -175,15 +198,31 @@ check('un’unità toccata apre una sessione', (await page.locator('.study, .mat
 await page.evaluate(() => localStorage.setItem('frasi/session-check', '1'));
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForSelector('[data-act="study"]');
-await page.evaluate((keep) => {
+/*
+ * Per l'abbinamento servono carte GIA' INCONTRATE: da quando `matchable()`
+ * tiene fuori le frasi mai viste, un mazzo vuoto apre la sessione dalla prima
+ * carta e basta — che è il caso normale del primo giorno, non un difetto. Qui
+ * se ne mettono sei in ripasso e scadute, che è la situazione in cui
+ * l'abbinamento c'e' davvero.
+ */
+const sixIds = DE.sentences.filter((x) => x.lv === 'A1').slice(0, 6).map((x) => x.id);
+await page.evaluate(([keep, ids]) => {
   const s = JSON.parse(localStorage.getItem('frasi/v1'));
   s.decks.de.profile = JSON.parse(keep);
   s.decks.de.cards = {};
+  const ago = Date.now() - 3600000;
+  ids.forEach((sid, i) => {
+    const id = `${sid}|comp`;
+    s.decks.de.cards[id] = {
+      id, sid, type: 'comp', state: 'review', step: 0,
+      s: 6, d: 5, due: ago - i * 60000, last: ago - 86400000, reps: 2, lapses: 0, ivl: 2,
+    };
+  });
   s.decks.de.log = [];
   s.decks.de.daily = { day: null, introduced: 0, reviewed: 0, xp: 0, cleared: false };
   localStorage.setItem('frasi/v1', JSON.stringify(s));
   localStorage.removeItem('frasi/session-check');
-}, realProfile);
+}, [realProfile, sixIds]);
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForSelector('[data-act="study"]');
 check('dal percorso si torna a casa con il livello del test', (await page.locator('.today').count()) === 1);
@@ -248,17 +287,74 @@ const pickChoice = async () => {
   known.set(target, (await page.textContent('.btn--right')).trim());
 };
 
+/*
+ * Comporre, completare e produrre: la prova risponde GIUSTO, e non a caso.
+ *
+ * Non è pignoleria: una risposta sbagliata rimette la carta in coda, com'è
+ * giusto, quindi una prova che tira a indovinare su questi tre tipi non fa
+ * finire la sessione — gira finché non sbatte contro il suo stesso tetto. La
+ * frase si ritrova dal corpus partendo dall'italiano che è sotto gli occhi.
+ */
+const byIt = new Map(DE.sentences.map((x) => [x.it.trim(), x]));
+const currentSentence = async () => {
+  const hint = await page.locator('.hint--big, .hint').first();
+  if (!(await hint.count())) return null;
+  return byIt.get((await hint.textContent()).trim()) || null;
+};
+
+const answerTiles = async (sentence) => {
+  if (!sentence) {                       // frase non riconosciuta: meglio finire che bloccarsi
+    while (await page.locator('[data-tile]').count()) await page.click('[data-tile]');
+  } else {
+    for (const word of sentence.text.split(/\s+/)) {
+      const tile = page.locator('[data-tile]', { hasText: new RegExp(`^${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }).first();
+      if (await tile.count()) await tile.click();
+      else await page.locator('[data-tile]').first().click();
+    }
+  }
+  await tap('[data-act="check"]');
+};
+
+/* I buchi in ordine: si cammina sulla riga della frase, uno span è una parola
+ * vista, un input è una o più parole nascoste fino allo span successivo. */
+const answerCloze = async (sentence) => {
+  const wanted = sentence
+    ? await page.evaluate((words) => {
+      const nodes = [...document.querySelector('.target--cloze').children];
+      const out = [];
+      let k = 0;
+      nodes.forEach((node, n) => {
+        if (node.tagName !== 'INPUT') { k += 1; return; }
+        const next = nodes.slice(n + 1).find((x) => x.tagName !== 'INPUT');
+        const stop = next ? words.indexOf(next.textContent.trim(), k) : words.length;
+        out.push(words.slice(k, stop < 0 ? k + 1 : stop).join(' '));
+        k = stop < 0 ? k + 1 : stop;
+      });
+      return out;
+    }, sentence.text.split(/\s+/))
+    : [];
+  const blanks = await page.locator('[data-blank]').count();
+  for (let i = 0; i < blanks; i++) {
+    await page.locator('[data-blank]').nth(i).fill(wanted[i] || 'x');
+  }
+  await tap('[data-act="check"]');
+};
+
 let answered = 0;
 let checkedVerdict = false;
-while (answered < 60 && (await page.locator('.study').count())) {
+const visti = new Set();          // quali tipi di esercizio ha davvero mostrato la sessione
+while (answered < 90 && (await page.locator('.study').count())) {
+  for (const cls of await page.locator('.study__meta .pill').first().evaluate((e) => [...e.classList]).catch(() => [])) {
+    if (cls.startsWith('pill--') && cls !== 'pill--ghost') visti.add(cls.slice(6));
+  }
   if (await page.locator('[data-choice]').count()) await pickChoice();
   else if (await page.locator('[data-tile]').count()) {
-    while (await page.locator('[data-tile]').count()) await page.click('[data-tile]');
-    await tap('[data-act="check"]');
+    await answerTiles(await currentSentence());
   } else if (await page.locator('[data-blank]').count()) {
-    await tap('[data-act="check"]');
+    await answerCloze(await currentSentence());
   } else if (await page.locator('.input').count()) {
-    await page.fill('.input', 'x');
+    const sentence = await currentSentence();
+    await page.fill('.input', sentence ? sentence.text : 'x');
     await tap('[data-act="check"]');
   }
   if (!checkedVerdict) {
@@ -279,6 +375,9 @@ while (answered < 60 && (await page.locator('.study').count())) {
   answered++;
 }
 check('sessione completata', (await page.locator('.done').count()) === 1, `(${answered} risposte)`);
+/* Il primo giorno non è tutto riconoscimento: appena una frase esce
+ * dall'apprendimento, il suo gradino successivo entra in fondo alla coda. */
+check('la sessione mostra più di un tipo di esercizio', visti.size >= 2, `(${[...visti].join(', ')})`);
 check('riepilogo con precisione', (await page.textContent('.done')).includes('%'));
 check('punti guadagnati mostrati', /\+\d+/.test(await page.textContent('.done')));
 check('anello dell’obiettivo alla fine', (await page.locator('.done .ring').count()) === 1);

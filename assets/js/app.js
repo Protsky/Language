@@ -14,7 +14,7 @@ import * as Chart from './chart.js';
 import * as Fsrs from './fsrs.js';
 import { createScheduler, GRADES, REVIEW, NEW, DEFAULT_W } from './fsrs.js';
 import * as Opt from './optimizer.js';
-import { buildQueue, splitId, TYPES, nextDue, targetLevel, levelScore, pendingUnlocks, matchable, MATCH_MIN } from './scheduler.js';
+import { buildQueue, splitId, nextStepCard, TYPES, nextDue, targetLevel, levelScore, pendingUnlocks, matchable, MATCH_MIN } from './scheduler.js';
 import * as Units from './units.js';
 import { diff } from './check.js';
 import * as Ex from './exercises.js';
@@ -974,6 +974,7 @@ function startSession({ extraNew = 0, unit = null } = {}) {
     earned: 0,
     startXp: Store.today(lang.code).xp,
     hits: new Map(),          // richiami corretti di ogni carta dentro questa sessione
+    opened: 0,                // gradini successivi aperti durante la sessione
     startedAt: Date.now(),
     sentences: new Map(lang.sentences.map((s) => [s.id, s])),
   };
@@ -1629,7 +1630,41 @@ function applyReview(card, grade, type, { miss = null, ms = 0 } = {}) {
     const at = Math.min(session.index + (wantsMore ? 5 : 3), session.queue.length);
     session.queue.splice(at, 0, next);
   }
+  openNextStep(card, next);
   return next;
+}
+
+/* Quanti gradini in più può aprire una sessione: metà del tetto giornaliero.
+ * Non sono frasi nuove — sono altri modi di fare quelle di oggi — e costano
+ * meno di una frase mai vista, ma un tetto ci vuole lo stesso. */
+const extraStepBudget = () => Math.max(1, Math.ceil((settings().newPerDay || 8) / 2));
+
+/**
+ * Il gradino successivo, aperto DENTRO la sessione che l'ha meritato.
+ *
+ * La coda si decide una volta sola, all'inizio: se una frase esce
+ * dall'apprendimento a metà sessione, il suo gradino successivo aspettava
+ * comunque il giorno dopo, e il primo giorno di una lingua restava tutto
+ * riconoscimento — quattro tipi di esercizio nel codice, uno solo sullo
+ * schermo. Adesso, appena una carta arriva in ripasso, il gradino che si è
+ * sbloccato entra in fondo alla coda.
+ *
+ * In fondo, non qui accanto: fra la frase appena consolidata e il suo passo
+ * successivo devono passare le altre carte della sessione. Ricomporre subito
+ * ciò che si è appena visto sarebbe copiare, non richiamare — la spaziatura è
+ * il motivo per cui tutto il resto funziona, e non la si rompe per far vedere
+ * un esercizio in più.
+ */
+function openNextStep(card, next) {
+  if (next.state !== REVIEW) return;
+  if (card.state === REVIEW) return;              // già matura: i suoi gradini li dà buildQueue
+  if (session.opened >= extraStepBudget()) return;
+
+  const step = nextStepCard(Store.getDeck(lang.code), card.id, settings().direction);
+  if (!step || session.queue.some((c) => c.id === step.id)) return;
+
+  session.queue.push(step);
+  session.opened += 1;
 }
 
 /** Fine della sessione, o carta successiva. */
