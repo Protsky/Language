@@ -3,6 +3,10 @@
 **Documento di ricerca e specifica hardware** — input per la fase di progettazione (schematico + PCB).
 Versione 0.1 — settembre 2026.
 
+> **Seguito**: [Parte 2 — Vento in diretta (classe HAWK) e piattaforma per sviluppatori](./vento-in-diretta-e-piattaforma-sviluppatori.md),
+> che aggiunge i requisiti per la stima del vento istantaneo e le predisposizioni hardware per AI locale,
+> storage, connettività satellitare e API.
+
 > Scopo del documento: fissare architettura, componenti candidati e vincoli meccanici/elettrici di uno
 > strumento circolare da 80 mm (3⅛"), basato su SoC Espressif, pensato **come piattaforma**: sensoristica
 > completa, connettività totale, e un SDK su cui terze parti costruiscono applicazioni. Tutto progettato
