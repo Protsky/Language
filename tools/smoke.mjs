@@ -364,7 +364,12 @@ while (answered < 90 && (await page.locator('.study').count())) {
     check('un solo bottone: il voto è già deciso', (await page.locator('[data-act="next"]').count()) === 1);
     check('intervallo stimato mostrato', (await page.textContent('[data-act="next"]')).includes('fra'));
     await tap('[data-act="other"]');
-    check('il voto resta correggibile a mano', (await page.locator('[data-grade]').count()) === 4);
+    /* Tre voti, non quattro: "Facile" è stato tolto il 05/09/2026 — era
+     * l'ultima autovalutazione rimasta, e la correzione a mano ha senso solo
+     * verso il basso. */
+    check('il voto resta correggibile a mano, ma solo verso il basso',
+      (await page.locator('[data-grade]').count()) === 3
+      && (await page.locator('[data-grade="4"]').count()) === 0);
     check('scegliere a mano ferma l’avanzamento automatico', (await page.locator('.btn--auto').count()) === 0);
     await shot('7-risposta');
     await tap('[data-grade="3"]');

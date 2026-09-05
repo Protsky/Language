@@ -98,10 +98,40 @@ export function p2pl(theta, a, b) {
   return 1 / (1 + Math.exp(-a * (theta - b)));
 }
 
-/** Informazione di Fisher dell'item in θ: I = a² P (1-P). */
-export function itemInfo(theta, a, b) {
-  const p = p2pl(theta, a, b);
-  return a * a * p * (1 - p);
+/**
+ * Il modello con l'indovinamento (3PL).
+ *
+ * Tutte le domande del test hanno quattro opzioni: chi non sa niente ne
+ * azzecca comunque una su quattro. Il 2PL non lo sa — per lui una risposta
+ * giusta è sempre sapere — e quindi legge come competenza anche il caso.
+ * L'effetto non è teorico: simulando risposte che indovinano una volta su
+ * quattro, la stima usciva più alta del vero di 0,3-0,8 in θ, con il bias
+ * peggiore in basso, cioè proprio su chi comincia — e intanto l'errore
+ * standard riportato restava lo stesso, cioè dichiarava una precisione che
+ * non c'era. Un principiante veniva mandato a studiare un livello sopra il
+ * suo, con la sicurezza di un numero.
+ *
+ * `c` è la soglia sotto cui non si scende: 1/4 con quattro opzioni. Se manca
+ * (vecchie risposte salvate) vale 0, e la formula torna a essere il 2PL.
+ */
+export function p3pl(theta, a, b, c = 0) {
+  return c + (1 - c) / (1 + Math.exp(-a * (theta - b)));
+}
+
+/**
+ * Informazione di Fisher dell'item in θ.
+ *
+ * Con l'indovinamento non è più a²P(1−P): un item facile per chi risponde
+ * porta meno informazione di quanto sembri, perché parte di quel successo è
+ * fortuna. La forma è quella classica del 3PL,
+ * I = a²·((P−c)/(1−c))²·(1−P)/P, e serve a scegliere le domande giuste, non
+ * solo a stimare bene.
+ */
+export function itemInfo(theta, a, b, c = 0) {
+  const p = p3pl(theta, a, b, c);
+  if (p <= 0 || p >= 1) return 0;
+  const q = (p - c) / (1 - c);
+  return a * a * q * q * ((1 - p) / p);
 }
 
 /**
@@ -119,7 +149,7 @@ export function estimate(responses, priorMean = 0) {
     // prior N(priorMean, 1): la media viene dalla domanda di ingresso
     let lik = Math.exp(-((th - priorMean) ** 2) / (2 * PRIOR_SD * PRIOR_SD));
     for (const r of responses) {
-      const p = p2pl(th, r.a, r.b);
+      const p = p3pl(th, r.a, r.b, r.c || 0);
       lik *= r.correct ? p : 1 - p;
     }
     post[i] = lik;
@@ -143,14 +173,30 @@ export function pickNext(bank, askedIds, theta, random = Math.random) {
   const pool = bank.filter((it) => !askedIds.includes(it.id));
   if (!pool.length) return null;
   const scored = pool
-    .map((it) => ({ it, info: itemInfo(theta, it.a, it.b) }))
+    .map((it) => ({ it, info: itemInfo(theta, it.a, it.b, guessing(it)) }))
     .sort((x, y) => y.info - x.info);
   const top = scored.slice(0, Math.min(3, scored.length));
   return top[Math.floor(random() * top.length)].it;
 }
 
-/** Regola di arresto: precisione sufficiente, o si è esaurito il budget di domande. */
-export function shouldStop(responses, se, { min = 8, max = 16, target = 0.35 } = {}) {
+/**
+ * Quanto si può indovinare una domanda: una opzione su quante ce ne sono.
+ * Sta qui e non nel corpus perché è già scritto nell'item — il numero di
+ * opzioni — e un campo in più sarebbe una copia da tenere allineata.
+ */
+export const guessing = (item) => (item.options?.length ? 1 / item.options.length : 0);
+
+/**
+ * Regola di arresto: precisione sufficiente, o esaurito il budget di domande.
+ *
+ * La soglia è 0,45 e non 0,35 perché con l'indovinamento la stessa domanda
+ * porta meno informazione: pretendere la vecchia precisione vorrebbe dire
+ * arrivare quasi sempre al tetto delle sedici domande, cioè allungare il test
+ * per inseguire una cifra che prima era ottimistica. 0,45 di errore standard
+ * su una banda QCER larga 0,9 resta una stima onesta, e il test dura quanto
+ * prima.
+ */
+export function shouldStop(responses, se, { min = 8, max = 16, target = 0.45 } = {}) {
   if (responses.length >= max) return true;
   if (responses.length < min) return false;
   return se <= target;

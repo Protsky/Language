@@ -15,7 +15,7 @@
  *     difficulties): costa di più sul momento e rende di più a distanza.
  */
 
-import { newCard, LEARNING, RELEARNING, REVIEW, NEW } from './fsrs.js';
+import { newCard, retrievability, elapsedDays, LEARNING, RELEARNING, REVIEW, NEW } from './fsrs.js';
 import { LEVELS, levelIndex } from './corpus.js';
 import { bandProgress, toCefr } from './irt.js';
 import { newPool } from './units.js';
@@ -104,23 +104,35 @@ function domainBonus(sentence, domains) {
  * Quanto è solido, per ogni punto grammaticale, ciò che se ne è già visto.
  * Serve a distinguere "mai incontrato" da "incontrato e ancora traballante":
  * sono due situazioni diverse e vogliono frasi nuove per motivi diversi.
+ *
+ * La misura è la probabilità media di ricordare le sue carte FRA DUE
+ * SETTIMANE, non la stabilità media. La differenza non è cosmetica: la
+ * stabilità cresce con il numero di ripassi e con gli intervalli che il
+ * modello ha assegnato, cioè con l'anzianità della carta, e conta i giorni di
+ * calendario. Un punto ripassato spesso e mai capito accumulava stabilità e
+ * risultava "solido" mentre continuava a cedere. La retrievability a un
+ * orizzonte fisso è quello che si vuole davvero sapere — fra due settimane
+ * questa regola c'è ancora? — ed è confrontabile fra carte di età diverse.
  */
+const ORIZZONTE = 14;
+
 function grammarStrength(deck, sentences) {
   const map = new Map();
   for (const [id, card] of Object.entries(deck.cards)) {
     const s = sentences.get(splitId(id).sid);
     if (!s) continue;
-    const row = map.get(s.g) || { cards: 0, stability: 0 };
+    const row = map.get(s.g) || { cards: 0, somma: 0 };
     row.cards += 1;
-    row.stability += card.s || 0;
+    row.somma += card.s > 0 ? retrievability(ORIZZONTE, card.s) : 0;
     map.set(s.g, row);
   }
-  for (const row of map.values()) row.strength = row.stability / row.cards;
+  for (const row of map.values()) row.strength = row.somma / row.cards;
   return map;
 }
 
-/* Sotto questa stabilità media un punto grammaticale è ancora da consolidare. */
-const SHAKY = 7;
+/* Sotto questa probabilità un punto grammaticale è ancora da consolidare:
+ * meno di tre volte su quattro fra due settimane. */
+const SHAKY = 0.75;
 
 /**
  * Estrazione casuale pesata, senza rimpiazzo: la probabilità è proporzionale
@@ -258,13 +270,38 @@ export function buildQueue({ lang, deck, settings, introducedToday = 0, now = Da
     .filter((c) => (c.state === LEARNING || c.state === RELEARNING) && c.due <= now + LEARNING_WINDOW)
     .sort((a, b) => a.due - b.due);
 
+  /*
+   * Le scadute si ordinano per RISCHIO, non per data.
+   *
+   * Finché si studia tutti i giorni le due cose coincidono e non cambia
+   * niente. Cambia dopo un'assenza, che è l'unico momento in cui l'ordine
+   * conta: `maxReviews` taglia la coda, e la data sceglieva le carte più
+   * vecchie — che dopo tre settimane sono anche le più stabili, cioè quelle
+   * che potevano aspettare ancora. La retrievability mette davanti quelle che
+   * stanno per andarsene davvero. È la regola di Anki per gli arretrati
+   * ("ascending retrievability … recommended if you have a large backlog"):
+   * prassi consolidata, non un esperimento.
+   *
+   * Il prezzo, dichiarato: la prima sessione di rientro comincia dalle carte
+   * più dimenticate, quindi da una fila di errori. È il compromesso fra
+   * salvare la memoria e avere voglia di continuare, e non si risolve a
+   * tavolino — va guardata la ritenzione dei sette giorni dopo.
+   */
+  const rischio = (c) => retrievability(elapsedDays(c, now), c.s);
   const due = all
     .filter((c) => c.state === REVIEW && c.due <= now)
-    .sort((a, b) => a.due - b.due);
+    .sort((a, b) => rischio(a) - rischio(b) || a.due - b.due);
 
   const reviews = [...learning, ...due.slice(0, settings.maxReviews)];
 
-  const budget = Math.max(0, settings.newPerDay - introducedToday);
+  /*
+   * E con l'arretrato non si introduce niente di nuovo. La soglia è nominata:
+   * più scadenze di quante ne stia in una sessione intera. Sotto, la giornata
+   * è normale e le frasi nuove entrano come sempre; sopra, aggiungere roba
+   * nuova a un debito che non si riesce a pagare lo fa solo crescere.
+   */
+  const arretrato = due.length > settings.maxReviews;
+  const budget = arretrato ? 0 : Math.max(0, settings.newPerDay - introducedToday);
   const busy = new Set(reviews.map((c) => splitId(c.id).sid));
 
   /*
@@ -322,6 +359,7 @@ export function buildQueue({ lang, deck, settings, introducedToday = 0, now = Da
       learning: learning.length,
       due: due.length,
       shownDue: Math.min(due.length, settings.maxReviews),
+      arretrato,
       fresh: fresh.length,
       budget,
       total: reviews.length + fresh.length,

@@ -63,19 +63,52 @@ const clampP = (p) => Math.min(1 - EPS, Math.max(EPS, p));
  * Rigioca tutte le storie con certi pesi e restituisce le previsioni.
  * Si valutano solo i ripassi a distanza di almeno un giorno: quelli dentro la
  * stessa sessione seguono un'altra formula e non dicono niente sull'oblio.
+ *
+ * Una storia può arrivare come semplice elenco di passi, oppure come
+ * `{ steps, from }`: in quel caso la memoria si ricostruisce dall'inizio — non
+ * si può fare altrimenti, lo stato dipende da tutto quello che è successo
+ * prima — ma si CONTANO solo le previsioni dal passo `from` in poi. È il modo
+ * di misurare dei pesi su ripassi che non hanno contribuito a produrli.
  */
 export function predictions(sequences, w) {
   const rows = [];
-  for (const steps of sequences) {
+  for (const seq of sequences) {
+    const steps = Array.isArray(seq) ? seq : seq.steps;
+    const from = Array.isArray(seq) ? 0 : (seq.from || 0);
     let state = null;
-    for (const step of steps) {
-      if (state && step.elapsed >= 1) {
+    steps.forEach((step, i) => {
+      if (state && step.elapsed >= 1 && i >= from) {
         rows.push({ p: clampP(retrievability(step.elapsed, state.s)), hit: step.grade > 1 ? 1 : 0 });
       }
       state = memoryStep(w, state, step.grade, step.elapsed);
-    }
+    });
   }
   return rows;
+}
+
+/**
+ * Taglio nel tempo: la prima parte di ogni storia tara, il resto verifica.
+ *
+ * Il taglio è DENTRO ogni storia e non fra carte diverse: `replay()` scarta le
+ * carte di cui non vede il primo ripasso, quindi mettere certe carte
+ * interamente da un lato butterebbe via metà dei dati.
+ *
+ * Le storie troppo corte per essere divise restano nella taratura: servono a
+ * stimare, non a giudicare.
+ */
+export function splitByTime(sequences, frac = 0.75) {
+  const train = [];
+  const test = [];
+  for (const steps of sequences) {
+    const cut = Math.max(2, Math.round(steps.length * frac));
+    if (steps.length <= cut) {
+      train.push(steps);
+      continue;
+    }
+    train.push(steps.slice(0, cut));
+    test.push({ steps, from: cut });
+  }
+  return { train, test };
 }
 
 /** Quanto le previsioni erano sbagliate: più basso, meglio. */
@@ -84,6 +117,22 @@ export function logLoss(rows) {
   let sum = 0;
   for (const { p, hit } of rows) sum -= hit ? Math.log(p) : Math.log(1 - p);
   return sum / rows.length;
+}
+
+/**
+ * La stessa log-loss, con l'errore standard della media.
+ *
+ * Serve a non scambiare il rumore per un miglioramento: su duecento ripassi
+ * due modelli distano quasi sempre meno di un errore standard, e allora la
+ * differenza non c'è, per quanto il terzo decimale sembri dire di sì.
+ */
+export function logLossStats(rows) {
+  const n = rows.length;
+  if (!n) return { loss: Infinity, se: Infinity, n: 0 };
+  const losses = rows.map(({ p, hit }) => (hit ? -Math.log(p) : -Math.log(1 - p)));
+  const loss = losses.reduce((a, b) => a + b, 0) / n;
+  const varianza = losses.reduce((a, x) => a + (x - loss) ** 2, 0) / Math.max(1, n - 1);
+  return { loss, se: Math.sqrt(varianza / n), n };
 }
 
 /**
@@ -126,7 +175,86 @@ export function calibrationRmse(rows, bins = 10) {
 /** Qualità complessiva di una scelta di pesi sui dati veri. */
 export function score(sequences, w) {
   const rows = predictions(sequences, w);
-  return { n: rows.length, logLoss: logLoss(rows), rmse: calibrationRmse(rows), rows };
+  const { loss, se } = logLossStats(rows);
+  return { n: rows.length, logLoss: loss, se, rmse: calibrationRmse(rows), rows };
+}
+
+/**
+ * I pesi tarati valgono la pena?
+ *
+ * Fino al 05/09/2026 la risposta veniva da un confronto fatto sugli STESSI
+ * ripassi usati per tarare, che è il modo classico di farsi dire di sì: su un
+ * registro di poche centinaia di voci la discesa a coordinate trova sempre
+ * qualcosa da limare, e quel qualcosa è quasi tutto rumore di questo mazzo.
+ * Misurato su un registro sintetico da ~140 valutazioni: +0,0275 di guadagno
+ * apparente dentro il campione, −0,0164 fuori. Il bottone si accendeva sulla
+ * prima cifra.
+ *
+ * Adesso il confronto è fuori campione, e il metro non sono i pesi di prima ma
+ * quelli DI SERIE: sono ottimizzati su centinaia di milioni di ripassi, e la
+ * domanda giusta è se questa manciata di dati batta quelli, non se batta il
+ * tentativo precedente. Deve vincere di più di un errore standard, e su
+ * abbastanza ripassi di verifica: sotto, si tiene ciò che c'è.
+ */
+export const MIN_TEST_ROWS = 40;
+
+export function verdict(test, candidate, baseline) {
+  const mio = predictions(test, candidate);
+  const serie = predictions(test, baseline);
+  const perdita = ({ p, hit }) => (hit ? -Math.log(p) : -Math.log(1 - p));
+
+  /*
+   * Il confronto è APPAIATO: sugli stessi ripassi, riga per riga, quanto ha
+   * perso l'uno meno quanto ha perso l'altro. Le due serie sono quasi
+   * identiche — stesse carte, stessi giorni — quindi la variabilità della
+   * DIFFERENZA è molto più piccola di quella di ciascuna delle due, e
+   * confrontare le due medie con l'errore standard di una sola sarebbe un
+   * cancello che non si apre mai: con 400 ripassi di verifica chiedeva un
+   * guadagno di 0,038 di log-loss, cioè più di quanto separi FSRS-5 da
+   * FSRS-6 sull'intero benchmark.
+   */
+  const n = Math.min(mio.length, serie.length);
+  const diff = Array.from({ length: n }, (_, i) => perdita(serie[i]) - perdita(mio[i]));
+  const media = n ? diff.reduce((a, b) => a + b, 0) / n : 0;
+  const varianza = n > 1 ? diff.reduce((a, x) => a + (x - media) ** 2, 0) / (n - 1) : Infinity;
+  const se = Math.sqrt(varianza / Math.max(1, n));
+
+  return {
+    n,
+    testLoss: logLoss(mio),
+    baseLoss: logLoss(serie),
+    margine: media,
+    se,
+    enough: n >= MIN_TEST_ROWS,
+    better: n >= MIN_TEST_ROWS && media > se,
+  };
+}
+
+/**
+ * Quali pesi si possono davvero stimare con questi dati.
+ *
+ * Un peso che governa una situazione mai capitata non viene stimato: viene
+ * inventato. w15 vale solo per "Difficile" e w16 solo per "Facile" — e
+ * "Facile" non esiste più fra i voti dati a mano, quindi su un registro nuovo
+ * quel peso non ha un solo caso da cui imparare. Con pochi ripassi si
+ * restringe ancora: si toccano solo i pesi della prima memoria e della
+ * crescita, che sono quelli su cui i dati parlano per primi.
+ */
+export function identifiable(sequences, { rich = false } = {}) {
+  const conta = new Map();
+  for (const seq of sequences) {
+    for (const step of (Array.isArray(seq) ? seq : seq.steps)) {
+      conta.set(step.grade, (conta.get(step.grade) || 0) + 1);
+    }
+  }
+  const base = rich
+    ? [...Array(DEFAULT_W.length).keys()]
+    : [0, 1, 2, 3, 8, 9, 10];
+  return base.filter((i) => {
+    if (i === 15) return (conta.get(2) || 0) >= 10;
+    if (i === 16) return (conta.get(4) || 0) >= 10;
+    return true;
+  });
 }
 
 const clampTo = (x, [lo, hi]) => Math.min(hi, Math.max(lo, x));
@@ -135,14 +263,15 @@ const clampTo = (x, [lo, hi]) => Math.min(hi, Math.max(lo, x));
  * Discesa a coordinate: un peso alla volta, passi via via più piccoli.
  * Semplice di proposito — deve girare su un telefono senza librerie.
  */
-export function optimize(sequences, { start = DEFAULT_W, passes = 4, onProgress } = {}) {
+export function optimize(sequences, { start = DEFAULT_W, passes = 4, onProgress, only = null } = {}) {
   let best = start.slice();
   let bestLoss = logLoss(predictions(sequences, best));
   const initial = bestLoss;
+  const indici = only || [...Array(best.length).keys()];
 
   for (let pass = 0; pass < passes; pass++) {
     const scale = 0.35 / (pass + 1);
-    for (let i = 0; i < best.length; i++) {
+    for (const i of indici) {
       const [lo, hi] = BOUNDS[i];
       const span = Math.min(hi - lo, Math.abs(best[i]) + 0.1);
       for (const delta of [span * scale, -span * scale, span * scale * 0.3, -span * scale * 0.3]) {

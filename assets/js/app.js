@@ -12,7 +12,7 @@ import * as Irt from './irt.js';
 import * as Stats from './stats.js';
 import * as Chart from './chart.js';
 import * as Fsrs from './fsrs.js';
-import { createScheduler, GRADES, REVIEW, NEW, DEFAULT_W } from './fsrs.js';
+import { createScheduler, retrievability, elapsedDays, REVIEW, NEW, DEFAULT_W } from './fsrs.js';
 import * as Opt from './optimizer.js';
 import { buildQueue, splitId, nextStepCard, TYPES, nextDue, targetLevel, levelScore, pendingUnlocks, matchable, MATCH_MIN } from './scheduler.js';
 import * as Units from './units.js';
@@ -88,9 +88,62 @@ let lang = null;
 const settings = () => Store.getSettings();
 /* I pesi sono del mazzo: tarare il russo non deve cambiare gli intervalli dello spagnolo. */
 const deckW = () => (lang ? Store.getW(lang.code) : null);
+/*
+ * La serie di giorni non si mostra mai rotta.
+ *
+ * «🔥 0 giorni» era un promemoria quotidiano di aver fallito, e non è un modo
+ * di dire: Silverman & Barasch (Journal of Consumer Research 49(6):1095-1117,
+ * 2023) trovano in sette studi che è la RAPPRESENTAZIONE della serie rotta a
+ * ridurre l'attività successiva, non il salto in sé. Chi torna dopo due giorni
+ * ha bisogno di un motivo per riaprire l'app, e il contatore azzerato è il
+ * contrario.
+ *
+ * Sotto i tre giorni la serie non dice ancora niente e lascia il posto ai
+ * giorni studiati sugli ultimi trenta: un numero che un giorno saltato sposta
+ * di uno, non a zero, e che non si può azzerare per sbaglio. Sopra, la serie
+ * torna — quando c'è, è una cosa vera e vale mostrarla.
+ *
+ * Quello che NON si fa: il permesso settimanale (il "freeze" delle app a
+ * gettoni). Aggiunge stato da sincronizzare e ammorbidisce un numero che
+ * dovrebbe essere onesto; il paper dice solo che la riparabilità attenua il
+ * danno, non che vada inventata una moneta.
+ */
+const SERIE_MIN = 3;
+
+const costanza = (serie, log) => {
+  if (serie >= SERIE_MIN) return `🔥 ${plural(serie, 'giorno', 'giorni')}`;
+  const { giorni, su } = Stats.giorniStudiati(log);
+  return `${giorni} giorni su ${su}`;
+};
+
+/**
+ * Quante carte scadono già fra N giorni: serve allo scheduler per scegliere,
+ * dentro la finestra del fuzz, il giorno meno carico. Si conta una volta per
+ * sessione — il mazzo non cambia sotto i piedi mentre si studia, e le carte
+ * che vengono programmate adesso si aggiungono man mano.
+ */
+let carico = null;
+
+function contaScadenze() {
+  const deck = lang ? Store.getDeck(lang.code) : null;
+  const out = new Map();
+  if (!deck) return out;
+  const oggi = Date.now();
+  for (const c of Object.values(deck.cards)) {
+    if (!c.due || c.state === NEW) continue;
+    const giorni = Math.max(0, Math.round((c.due - oggi) / 86400000));
+    out.set(giorni, (out.get(giorni) || 0) + 1);
+  }
+  return out;
+}
+
 const scheduler = () => {
   const cfg = settings();
-  return createScheduler({ requestRetention: cfg.retention, w: deckW() || undefined });
+  return createScheduler({
+    requestRetention: cfg.retention,
+    w: deckW() || undefined,
+    dueByDay: carico ? (n) => carico.get(n) || 0 : undefined,
+  });
 };
 
 /* --------------------------------- audio -------------------------------- */
@@ -617,7 +670,7 @@ function paintTest() {
       else if (bi === i) b.classList.add('btn--wrong');
     });
     exam.asked.push(it.id);
-    exam.responses.push({ a: it.a, b: it.b, correct, id: it.id, lv: it.lv });
+    exam.responses.push({ a: it.a, b: it.b, c: Irt.guessing(it), correct, id: it.id, lv: it.lv });
     exam.est = Irt.estimate(exam.responses, exam.prior.mean);
     setTimeout(() => {
       exam.locked = false;
@@ -808,13 +861,23 @@ function paintHome() {
         })}
         <div class="today__side">
           <p class="today__title">${day.xp >= goal.xp ? 'Obiettivo raggiunto' : 'Obiettivo di oggi'}</p>
-          <p class="small muted">${day.xp > goal.xp
-            ? `${day.xp - goal.xp} punti oltre l’obiettivo · puoi fermarti quando vuoi`
-            : day.xp === goal.xp
-              ? `${esc(goal.label.toLowerCase())} · puoi fermarti qui o andare avanti`
+          <!--
+            "Puoi fermarti quando vuoi" con duecento carte in coda era una
+            bugia gentile: l'obiettivo a punti si raggiunge in dodici carte e
+            i ripassi in scadenza restano lì, che è l'unica cosa che conta
+            davvero per la memoria. Se ce ne sono ancora, il testo lo dice.
+          -->
+          <p class="small muted">${day.xp >= goal.xp
+            ? counts.shownDue
+              ? `${esc(goal.label.toLowerCase())} · restano ${plural(counts.shownDue, 'ripasso in scadenza', 'ripassi in scadenza')}`
+              : day.xp > goal.xp
+                ? `${day.xp - goal.xp} punti oltre l’obiettivo · per oggi non c’è altro`
+                : `${esc(goal.label.toLowerCase())} · per oggi non c’è altro`
+            : counts.total < Goal.cardsLeft(day.xp, goal.xp)
+              ? `oggi ci sono ${plural(counts.total, 'carta', 'carte')}: l’obiettivo aspetta domani`
               : `${plural(Goal.cardsLeft(day.xp, goal.xp), 'carta', 'carte')} e ci sei`}</p>
           <div class="today__chips">
-            <span class="pill">🔥 ${plural(streak, 'giorno', 'giorni')}</span>
+            <span class="pill">${costanza(streak, deck.log)}</span>
             <span class="pill">${deck.profile.cefr || '—'}</span>
             <span class="pill">${seen} frasi</span>
           </div>
@@ -825,6 +888,8 @@ function paintHome() {
         <div class="queue__row"><span class="dot dot--new"></span> ${plural(counts.fresh, 'frase nuova', 'frasi nuove')}</div>
         <div class="queue__row"><span class="dot dot--learn"></span> ${plural(counts.learning, 'carta in apprendimento', 'carte in apprendimento')}</div>
         <div class="queue__row"><span class="dot dot--due"></span> ${plural(counts.shownDue, 'ripasso in scadenza', 'ripassi in scadenza')}${counts.due > counts.shownDue ? ` <span class="muted small">(di ${counts.due}, il resto domani)</span>` : ''}</div>
+        ${counts.arretrato ? `<p class="small muted">Arretrato: niente frasi nuove finché non rientra.
+          Prima le ${plural(counts.shownDue, 'carta', 'carte')} che stai per dimenticare davvero, non le più vecchie.</p>` : ''}
       </div>
 
       ${counts.total
@@ -966,6 +1031,7 @@ function startSession({ extraNew = 0, unit = null } = {}) {
     introducedToday: day.introduced,
   });
   if (!queue.length) return;
+  carico = contaScadenze();
   session = {
     queue,
     index: 0,
@@ -1050,6 +1116,8 @@ function prepare() {
   session.micError = null;
   session.listening = false;
   session.shownAt = Date.now(); // serve a misurare quanto costa davvero un ripasso
+  session.firstInputAt = null;  // e questo a misurare quanto ci hai messo a partire
+  session.micFallback = false;
 
   if (type === 'comp') session.ex = Ex.buildChoice(sentence, lang, seed, settings().direction);
   else if (type === 'build') {
@@ -1143,8 +1211,14 @@ function check() {
   }
 }
 
+/** Il momento del primo gesto di risposta: `ms` misura la battitura, questo il richiamo. */
+function tocca() {
+  if (session && !session.firstInputAt) session.firstInputAt = Date.now();
+}
+
 function answerChoice(i) {
   if (session.phase === 'done') return;
+  tocca();
   session.chosen = i;
   const ok = i === session.ex.correct;
   settle({ correct: ok, score: ok ? 1 : 0, extra: 0, marks: [], near: [], rows: [] });
@@ -1172,6 +1246,24 @@ function toggleMic() {
       session.heard = best.text;
       session.answer = best.text;
       session.listening = false;
+      /*
+       * Se la trascrizione non combacia NON si vota: si passa alla tastiera.
+       *
+       * Il riconoscimento vocale sbaglia per conto suo — sul parlato di chi
+       * studia una lingua il tasso d'errore misurato è intorno al 5% a parola
+       * anche con i motori buoni — e su una frase di cinque parole è
+       * ordinaria amministrazione. Prima quell'errore diventava "Di nuovo",
+       * accorciava l'intervallo della carta e finiva nel registro su cui si
+       * tarano i pesi: un difetto del microfono che si travestiva da difetto
+       * di memoria. Adesso quello che ha sentito resta scritto nel campo, e
+       * confermi o correggi tu. Un solo ripiego: alla seconda volta il voto
+       * vale, altrimenti dettare darebbe tentativi che scrivere non ha.
+       */
+      if (!best.result.correct && !session.micFallback) {
+        session.micFallback = true;
+        session.micError = 'Ho sentito questo. Correggi quello che serve e conferma.';
+        return render();
+      }
       settle(best.result);
     },
     onError: (message) => {
@@ -1358,6 +1450,22 @@ function closeMatch() {
 }
 
 /** Riga dei voti: uno solo, già deciso, salvo ripensamenti. */
+/*
+ * I voti che si possono dare a mano: "Di nuovo", "Difficile", "Bene".
+ *
+ * "Facile" non c'è più. Era l'ultima autovalutazione rimasta in un'app
+ * costruita apposta per non averne: `autoGrade` non lo produce mai — nessuna
+ * macchina può sapere che una risposta ti è venuta senza pensarci — e restava
+ * solo come bottone, dove la stessa illusione di competenza che il resto del
+ * progetto tiene fuori dalla porta rientrava dalla finestra. Costa caro:
+ * w[16] moltiplica la crescita della stabilità, quindi un "Facile" dato per
+ * generosità allunga l'intervallo di una carta che non lo meritava.
+ *
+ * La correzione a mano resta, ma solo verso il basso: dire "è andata peggio
+ * di così" è un dato in più, dire "è andata meglio" è un'opinione.
+ */
+const VOTI_A_MANO = [1, 2, 3];
+
 function gradeBar(card) {
   const preview = scheduler().preview(card);
   const labels = { 1: 'Di nuovo', 2: 'Difficile', 3: 'Bene', 4: 'Facile' };
@@ -1372,7 +1480,7 @@ function gradeBar(card) {
   }
   return h(`
     <div class="grades">
-      ${GRADES.map((g) => `
+      ${VOTI_A_MANO.map((g) => `
         <button class="grade grade--${g}${session.grade === g ? ' grade--hint' : ''}" data-grade="${g}">
           <span class="grade__l">${labels[g]}</span>
           <span class="grade__i">${labelInterval(preview[g])}</span>
@@ -1444,7 +1552,7 @@ function askBuild(body, foot, sentence, done) {
         : `<button class="tile" data-tile="${i}"${inLang()}>${esc(w)}</button>`).join('')}
     </div>`);
     body.append(pool);
-    on(pool, '[data-tile]', 'click', (e) => { picked.push(Number(e.currentTarget.dataset.tile)); render(); });
+    on(pool, '[data-tile]', 'click', (e) => { tocca(); picked.push(Number(e.currentTarget.dataset.tile)); render(); });
     on(line, '[data-drop]', 'click', (e) => { picked.splice(Number(e.currentTarget.dataset.drop), 1); render(); });
     foot.append(h(`<button class="btn btn--primary" data-act="check"${picked.length ? '' : ' disabled'}>Controlla</button>`));
   } else {
@@ -1481,7 +1589,7 @@ function askCloze(body, foot, sentence, done) {
       lang.script ? ' Puoi scrivere anche in caratteri latini.' : ''}</p>`));
     const inputs = [...line.querySelectorAll('[data-blank]')];
     inputs.forEach((input, i) => {
-      input.addEventListener('input', () => { session.filled[i] = input.value; });
+      input.addEventListener('input', () => { tocca(); session.filled[i] = input.value; });
       input.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter') return;
         e.preventDefault();
@@ -1527,7 +1635,7 @@ function askProd(body, foot, sentence, done) {
     const input = h(`<input class="input" type="text"${inLang()} inputmode="text" autocapitalize="none" autocomplete="off"
       autocorrect="off" spellcheck="false" placeholder="${lang.script ? 'scrivi la frase, anche in latino' : 'scrivi la frase'}" value="${esc(session.answer)}">`);
     body.append(input);
-    input.addEventListener('input', () => { session.answer = input.value; });
+    input.addEventListener('input', () => { tocca(); session.answer = input.value; });
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') check(); });
     if (!session.listening) setTimeout(() => input.focus(), 60);
 
@@ -1536,7 +1644,7 @@ function askProd(body, foot, sentence, done) {
         ${session.listening ? '● Ti ascolto… tocca per fermare' : '🎙 Dettala a voce'}
       </button>`);
       body.append(mic);
-      mic.addEventListener('click', () => toggleMic());
+      mic.addEventListener('click', () => { tocca(); toggleMic(); });
     }
     if (session.micError) body.append(h(`<p class="small muted center">${esc(session.micError)}</p>`));
     foot.append(h('<button class="btn btn--primary" data-act="check">Controlla</button>'));
@@ -1589,14 +1697,45 @@ function marksBlock(result) {
  * in coda quando serve. Non tocca l'avanzamento della sessione, perché
  * l'abbinamento ne chiude sei in un colpo solo.
  */
-function applyReview(card, grade, type, { miss = null, ms = 0 } = {}) {
+function applyReview(card, grade, type, { miss = null, ms = 0, rt = null, src = null, score = null } = {}) {
   const sch = scheduler();
   const now = Date.now();
   const wasReview = card.state === REVIEW;
   const isNew = card.state === NEW;
   const next = sch.review(card, grade, now);
   if (miss) next.miss = miss;
+  /* La carta appena programmata pesa sul suo giorno: senza questo, venti
+   * carte della stessa sessione troverebbero tutte lo stesso giorno vuoto. */
+  if (carico && next.state === REVIEW) {
+    const giorni = Math.max(0, Math.round((next.due - now) / 86400000));
+    carico.set(giorni, (carico.get(giorni) || 0) + 1);
+  }
 
+  /*
+   * Che cosa si scrive nel registro, e perché più di prima.
+   *
+   * Il registro è l'unica memoria che l'app ha di come è andata davvero: ci
+   * si tarano i pesi di FSRS, ci si disegna la calibrazione, e ogni domanda
+   * che ci si porrà fra sei mesi si potrà rispondere solo con i campi che
+   * oggi si sono scritti. Un campo non registrato non è recuperabile: la
+   * sessione è passata.
+   *
+   *   r    quanto era probabile ricordarla, PRIMA di rispondere. È il numero
+   *        che il modello aveva previsto: senza, la calibrazione va
+   *        ricostruita a posteriori rigiocando tutto il registro.
+   *   rt   quanto ci hai messo a cominciare a rispondere. `ms` misura anche
+   *        la battitura, che su una frase lunga è quasi tutto il tempo.
+   *   src  tastiera o microfono: un errore del riconoscitore non è un errore
+   *        di memoria, e chi tara i pesi deve poterlo distinguere.
+   *   sc   quanto era giusta la risposta (0..1), non solo il voto: fra "una
+   *        lettera sbagliata" e "frase completamente diversa" il voto è lo
+   *        stesso, il punteggio no.
+   *
+   * Le voci vecchie non hanno questi campi: chi legge il registro deve
+   * reggere la loro assenza, ed è il motivo per cui nessuno di questi entra
+   * in un calcolo obbligatorio.
+   */
+  const r = wasReview && card.s > 0 ? retrievability(elapsedDays(card, now), card.s) : null;
   Store.recordReview(next, {
     t: now,
     id: card.id,
@@ -1609,6 +1748,10 @@ function applyReview(card, grade, type, { miss = null, ms = 0 } = {}) {
     xp: Goal.PER_CARD,
     s: Number(next.s.toFixed(3)),
     d: Number(next.d.toFixed(2)),
+    ...(r !== null ? { r: Number(r.toFixed(4)) } : {}),
+    ...(rt !== null ? { rt: Math.min(600000, rt) } : {}),
+    ...(src ? { src } : {}),
+    ...(score !== null ? { sc: Number(score.toFixed(3)) } : {}),
   }, lang.code);
 
   session.done += 1;
@@ -1696,7 +1839,15 @@ function commit(grade) {
     if (Object.keys(acc).length) miss = acc;
   }
 
-  applyReview(card, grade, session.type, { miss, ms: Date.now() - (session.shownAt || Date.now()) });
+  applyReview(card, grade, session.type, {
+    miss,
+    ms: Date.now() - (session.shownAt || Date.now()),
+    rt: session.firstInputAt ? session.firstInputAt - session.shownAt : null,
+    /* "mic" solo se la trascrizione è stata accettata così com'era: dopo il
+     * ripiego la risposta l'hai scritta tu, e va contata come scritta. */
+    src: session.heard && !session.micFallback ? 'mic' : 'kbd',
+    score: typeof session.result?.score === 'number' ? session.result.score : null,
+  });
   advance();
 }
 
@@ -1751,8 +1902,10 @@ function paintDone() {
           <div class="stat__l">punti di oggi</div>
         </div>
         <div class="stat">
-          <div class="stat__n">🔥 ${Store.streak(lang.code)}</div>
-          <div class="stat__l">giorni di fila</div>
+          <div class="stat__n">${Store.streak(lang.code) >= SERIE_MIN
+            ? `🔥 ${Store.streak(lang.code)}`
+            : Stats.giorniStudiati(deck.log).giorni}</div>
+          <div class="stat__l">${Store.streak(lang.code) >= SERIE_MIN ? 'giorni di fila' : 'giorni su trenta'}</div>
         </div>
       </div>
 
@@ -1865,7 +2018,7 @@ let gramExpanded = false;   // la mappa mostra di norma solo i punti già incont
 function gramColor(g) {
   if (!g.seen) return '#1e2735';
   const steps = Chart.RAMP;
-  const solid = Math.min(1, g.strength / 30);          // 30 giorni di stabilità = solido
+  const solid = Math.min(1, g.strength);   // probabilità di ricordarlo fra due settimane
   const covered = g.seen / g.total;
   return steps[Math.min(steps.length - 1, Math.floor(((solid * 0.7) + (covered * 0.3)) * steps.length))];
 }
@@ -1965,7 +2118,13 @@ function paintStats() {
         title: 'Calendario dello studio',
         badge: '16 settimane',
         svg: Chart.heatmap({ days: calendar }),
-        foot: `Ogni quadratino è un giorno, più chiaro dove hai ripassato di più. Serie attuale: ${plural(Store.streak(lang.code), 'giorno', 'giorni')}.`,
+        foot: `Ogni quadratino è un giorno, più chiaro dove hai ripassato di più. ${(() => {
+          const s = Store.streak(lang.code);
+          const { giorni, su } = Stats.giorniStudiati(deck.log);
+          return s >= SERIE_MIN
+            ? `Serie attuale: ${plural(s, 'giorno', 'giorni')}, su ${giorni} degli ultimi ${su}.`
+            : `Hai studiato ${giorni} degli ultimi ${su} giorni.`;
+        })()}`,
       })}
 
       ${chartCard({
@@ -2004,7 +2163,8 @@ function paintStats() {
 
       <div class="card card--flat">
         <div class="card__head"><b>Mappa della grammatica</b><span class="muted small">${gram.filter((g) => g.seen).length}/${gram.length} punti</span></div>
-        <p class="small muted">Più chiaro, più solido. Tocca un punto per vedere tutte le frasi che lo contengono.</p>
+        <p class="small muted">Più chiaro, più probabile che fra due settimane regga ancora.
+          Tocca un punto per vedere tutte le frasi che lo contengono.</p>
         <div class="gram-map">
           ${(gramExpanded ? gram : gram.filter((g) => g.seen)).map((g) => `
             <button class="gram" data-gram="${esc(g.g)}" style="--fill:${gramColor(g)}">
@@ -2111,17 +2271,30 @@ function paintTuning(container, deck, cfg) {
     </div>`));
 
   if (tuning) {
-    const better = tuning.after.logLoss < tuning.before.logLoss;
+    const { esito } = tuning;
+    const titolo = esito.better
+      ? 'Questi pesi reggono anche sui ripassi che non hanno visto.'
+      : !esito.enough
+        ? `Non ci sono abbastanza ripassi per giudicarli: ne servono ${Opt.MIN_TEST_ROWS} di verifica, ce ne sono ${esito.n}.`
+        : 'Sui ripassi che non hanno visto non battono quelli di serie.';
     body.append(h(`
       <div class="card card--flat">
-        <p class="small"><b>${better ? 'Trovati pesi migliori dei tuoi attuali.' : 'I pesi attuali reggono: non ho trovato di meglio.'}</b></p>
+        <p class="small"><b>${titolo}</b></p>
         <p class="small muted">
-          log-loss ${tuning.before.logLoss.toFixed(4)} → <b>${tuning.after.logLoss.toFixed(4)}</b> ·
-          calibrazione ${(tuning.before.rmse * 100).toFixed(1)}% → <b>${(tuning.after.rmse * 100).toFixed(1)}%</b>
-          ${tuning.n < Opt.GOOD_REVIEWS ? '<br>Con meno di ' + Opt.GOOD_REVIEWS + ' ripassi la stima è ancora rumorosa: rifalla più avanti.' : ''}
+          Sui ripassi usati per tararli: ${tuning.before.logLoss.toFixed(4)} → <b>${tuning.after.logLoss.toFixed(4)}</b>
+          · calibrazione ${(tuning.before.rmse * 100).toFixed(1)}% → <b>${(tuning.after.rmse * 100).toFixed(1)}%</b>.
+          Ma quel confronto è fatto sugli stessi dati con cui sono stati scelti, quindi scende quasi sempre.
+        </p>
+        <p class="small muted">
+          Sui ${plural(esito.n, 'ripasso tenuto da parte', 'ripassi tenuti da parte')}, che è il confronto che conta:
+          <b>${Number.isFinite(esito.testLoss) ? esito.testLoss.toFixed(4) : '—'}</b>
+          contro ${Number.isFinite(esito.baseLoss) ? esito.baseLoss.toFixed(4) : '—'} dei pesi di serie
+          — un vantaggio di ${esito.margine >= 0 ? '' : '−'}${Math.abs(esito.margine).toFixed(4)} contro un margine d'errore di ${esito.se.toFixed(4)}.
+          ${esito.better ? '' : 'La differenza sta dentro il rumore: tenere i pesi attuali è la scelta onesta.'}
+          ${tuning.n < Opt.GOOD_REVIEWS ? `<br>Con meno di ${Opt.GOOD_REVIEWS} ripassi si sono toccati solo ${tuning.pesi} pesi su ${DEFAULT_W.length}: gli altri, con questi dati, si inventerebbero.` : ''}
         </p>
         <div class="row">
-          <button class="btn btn--primary" data-act="apply"${better ? '' : ' disabled'}>Usa questi pesi</button>
+          <button class="btn btn--primary" data-act="apply"${esito.better ? '' : ' disabled'}>Usa questi pesi</button>
           <button class="btn btn--ghost" data-act="discard">Lascia stare</button>
         </div>
       </div>`));
@@ -2141,8 +2314,26 @@ function paintTuning(container, deck, cfg) {
     btn.textContent = 'Sto rigiocando i tuoi ripassi…';
     btn.disabled = true;
     setTimeout(() => {
-      const result = Opt.optimize(sequences, { start: current });
-      tuning = { w: result.w, before: now, after: Opt.score(sequences, result.w), n: now.n };
+      /*
+       * Si tara sulla prima parte della storia di ogni carta e si giudica
+       * sulla seconda, contro i pesi di serie. Il verdetto che conta è
+       * `esito.better`: il confronto in campione (`after`) resta solo perché
+       * è quello che l'ottimizzatore ha minimizzato, e vederlo scendere mentre
+       * il verdetto dice di no spiega meglio di qualunque frase perché il
+       * bottone non si accende.
+       */
+      const { train, test } = Opt.splitByTime(sequences);
+      const only = Opt.identifiable(train, { rich: now.n >= Opt.GOOD_REVIEWS });
+      const result = Opt.optimize(train, { start: current, only });
+      const esito = Opt.verdict(test, result.w, DEFAULT_W);
+      tuning = {
+        w: result.w,
+        before: now,
+        after: Opt.score(sequences, result.w),
+        n: now.n,
+        esito,
+        pesi: only.length,
+      };
       render();
     }, 30);
   });
@@ -2343,6 +2534,8 @@ function paintSettings() {
           <input type="range" min="70" max="140" step="5" value="${Math.round((cfg.ttsPitch ?? 1) * 100)}" data-set="ttsPitch" data-scale="100">
         </label>
         <p class="small muted">
+          A 1,00× senti la voce come parla davvero: è la velocità su cui conviene allenarsi, perché è
+          quella che poi ti troverai. Per rallentare quando serve c'è il 🐢, frase per frase.
           Ogni lingua ha poi il suo ritmo: ${esc(lang.name)} viene letto al ${Math.round((lang.rate ?? 1) * 100)}% di questa velocità
           (${(cfg.ttsRate * (lang.rate ?? 1)).toFixed(2)}× in tutto). Durante lo studio il bottone
           👣 <b>Parola per parola</b> legge una parola alla volta, con una pausa vera in mezzo e la

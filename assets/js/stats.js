@@ -9,6 +9,7 @@
  */
 
 import { splitId } from './scheduler.js';
+import { retrievability } from './fsrs.js';
 import { LEVELS } from './corpus.js';
 import { dayKey } from './store.js';
 
@@ -51,6 +52,23 @@ export function reviewsByDay(log, days = 14) {
   return out;
 }
 
+/**
+ * In quanti degli ultimi N giorni si è studiato almeno una carta.
+ *
+ * È il numero che sostituisce la serie quando la serie è rotta. Silverman &
+ * Barasch (Journal of Consumer Research 49(6), 2023, sette studi) mostrano che
+ * far vedere una serie ROTTA riduce l'attività successiva: non è il salto di
+ * un giorno a scoraggiare, è il contatore azzerato messo sotto gli occhi.
+ * "17 giorni su 30" dice la stessa verità senza buttare via il mese: un giorno
+ * saltato lo sposta di uno, non a zero.
+ */
+export function giorniStudiati(log, days = 30) {
+  const soglia = Date.now() - days * DAY;
+  const giorni = new Set();
+  for (const e of log) if (e.t >= soglia) giorni.add(dayKey(e.t));
+  return { giorni: giorni.size, su: days };
+}
+
 /** Quanti ripassi cadranno nei prossimi giorni. */
 export function forecast(cards, days = 14) {
   const out = Array.from({ length: days }, (_, i) => ({
@@ -80,12 +98,21 @@ export function stateCounts(cards) {
   return out;
 }
 
-/** Avanzamento per punto grammaticale: quante frasi e quanto sono solide. */
+/*
+ * Avanzamento per punto grammaticale: quante frasi e quanto sono solide.
+ *
+ * `strength` è la probabilità media di ricordarne le carte fra due settimane
+ * (0..1), non la stabilità media in giorni: la stessa misura che usa lo
+ * scheduler per decidere quali punti riprendere, così la mappa colorata e la
+ * scelta delle frasi nuove non raccontano due storie diverse.
+ */
+export const GRAM_HORIZON = 14;
+
 export function grammarProgress(deck, lang) {
   const sentences = new Map(lang.sentences.map((s) => [s.id, s]));
   const totals = new Map();
   for (const s of lang.sentences) {
-    const row = totals.get(s.g) || { g: s.g, total: 0, seen: new Set(), stability: [] };
+    const row = totals.get(s.g) || { g: s.g, total: 0, seen: new Set(), tenuta: [] };
     row.total++;
     totals.set(s.g, row);
   }
@@ -94,15 +121,15 @@ export function grammarProgress(deck, lang) {
     if (!s) continue;
     const row = totals.get(s.g);
     row.seen.add(s.id);
-    if (card.s > 0) row.stability.push(card.s);
+    if (card.s > 0) row.tenuta.push(retrievability(GRAM_HORIZON, card.s));
   }
   return [...totals.values()]
     .map((r) => ({
       g: r.g,
       total: r.total,
       seen: r.seen.size,
-      strength: r.stability.length
-        ? r.stability.reduce((a, b) => a + b, 0) / r.stability.length
+      strength: r.tenuta.length
+        ? r.tenuta.reduce((a, b) => a + b, 0) / r.tenuta.length
         : 0,
     }))
     .sort((a, b) => b.seen / b.total - a.seen / a.total || b.strength - a.strength);

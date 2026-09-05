@@ -18,7 +18,14 @@ const DEFAULTS = {
     maxReviews: 120,
     retention: 0.9,
     tts: true,
-    ttsRate: 0.85,
+    /* Velocità di serie: 1, cioè come parla la voce. Fino al 05/09/2026 era
+     * 0,85 — ogni ascolto, per sempre, al rallentatore — e col bottone 🐢
+     * scendeva a 0,595. Un principiante deve poter rallentare quando gli
+     * serve, ma allenarsi sempre e solo su un parlato che nessuno produce
+     * insegna a capire quel parlato lì. Il 🐢 resta, ed è la scelta giusta
+     * nel punto in cui serve. (Nessuno studio dice che 0,85 fa danno: è una
+     * scelta di difetto, non un risultato.) */
+    ttsRate: 1,
     ttsPitch: 1,
     dailyGoal: 120,   // punti al giorno
     sounds: true,

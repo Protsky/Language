@@ -208,6 +208,67 @@ console.log('\n[fsrs] motore di ripetizione');
   }
   ok('difficoltà e stabilità restano nel dominio su una sequenza mista di 12 voti');
 
+  /*
+   * Il fuzz deve fuzzare davvero.
+   *
+   * Il ±5% di prima si richiudeva nell'arrotondamento: a 3, 5 e 7 giorni
+   * restava un solo giorno raggiungibile, e le carte introdotte insieme
+   * tornavano insieme per sempre. Qui si controlla ciò che si vede nel
+   * calendario — quanti giorni distinti sono raggiungibili — non la formula.
+   */
+  for (const days of [3, 5, 7, 10, 20, 60]) {
+    const [lo, hi] = Fsrs.fuzzRange(days);
+    expect(hi - lo + 1 >= 3, `a ${days} giorni il fuzz lascia solo ${hi - lo + 1} giorno/i (${lo}-${hi})`);
+    expect(lo <= days && hi >= days, `la finestra ${lo}-${hi} non contiene ${days}`);
+  }
+  const larghezze = [3, 5, 7, 10, 20, 60].map((d) => { const [a, b] = Fsrs.fuzzRange(d); return b - a + 1; });
+  ok(`il fuzz lascia ${larghezze.join('/')} giorni raggiungibili a 3/5/7/10/20/60 giorni`);
+
+  /*
+   * Dentro quella finestra si sceglie il giorno meno carico (il load balancer
+   * di Anki). Il calendario è finto: sette carte già in scadenza il giorno
+   * dell'intervallo esatto, zero il giorno prima.
+   */
+  {
+    const carta = { ...Fsrs.newCard('bal'), state: 'review', reps: 3, s: 20, d: 5, last: t0 - 20 * DAY, ivl: 20 };
+    // la finestra si misura da fuori, sorteggiando: è quella che vede chi studia
+    const cieco = Fsrs.createScheduler({});
+    const possibili = new Set();
+    for (let i = 0; i < 300; i++) possibili.add(cieco.review(carta, 3, t0).ivl);
+    const giorni = [...possibili].sort((a, b) => a - b);
+    expect(giorni.length >= 3, `senza calendario l'intervallo cade solo su ${giorni.length} giorno/i`);
+
+    // tutti carichi tranne l'ultimo della finestra: il bilanciamento deve scovarlo
+    const vuoto = giorni[giorni.length - 1];
+    const pieno = new Map(giorni.filter((d) => d !== vuoto).map((d) => [d, 7]));
+    const bilanciato = Fsrs.createScheduler({ dueByDay: (n) => pieno.get(n) || 0 });
+    const scelto = bilanciato.review(carta, 3, t0).ivl;
+    expect(scelto === vuoto, `scelto il giorno ${scelto} (${pieno.get(scelto) || 0} carte) invece del ${vuoto}, che è vuoto`);
+    ok(`col calendario in mano l'intervallo si sposta sul giorno libero (${scelto} invece di ${giorni[0]}-${giorni[giorni.length - 1]} a caso)`);
+  }
+
+  /*
+   * Dopo un errore la stabilità deve scendere SEMPRE, non "non crescere": il
+   * tetto è s/e^(w17·w18), quello di FSRS-6. Con il vecchio min(sf, s) una
+   * carta molto stabile poteva uscire da un "Di nuovo" intatta.
+   */
+  const tetto = Math.exp(Fsrs.DEFAULT_W[17] * Fsrs.DEFAULT_W[18]);
+  for (const s of [1, 10, 100, 1000, 10000]) {
+    const dopo = Fsrs.memoryStep(Fsrs.DEFAULT_W, { s, d: 5 }, 1, s);
+    expect(dopo.s <= s / tetto + 1e-9, `con S=${s} l'errore lascia ${dopo.s.toFixed(2)}, sopra il tetto ${(s / tetto).toFixed(2)}`);
+  }
+  ok(`un errore toglie almeno il ${Math.round((1 - 1 / tetto) * 100)}% della stabilità, a ogni scala`);
+
+  // e richiamare una carta in giornata non può abbassarla
+  for (const grade of [3, 4]) {
+    const magri = Fsrs.DEFAULT_W.slice();
+    magri[17] = 0.001;                      // taratura che senza pavimento darebbe un fattore < 1
+    magri[18] = 0.001;
+    const dopo = Fsrs.memoryStep(magri, { s: 30, d: 5 }, grade, 0);
+    expect(dopo.s >= 30 - 1e-9, `voto ${grade} in giornata abbassa la stabilità: 30 → ${dopo.s.toFixed(3)}`);
+  }
+  ok('un richiamo riuscito in giornata non abbassa mai la stabilità, nemmeno con pesi storti');
+
   // "Facile" non può essere più corto di "Bene"
   let cmp = Fsrs.newCard('c');
   cmp = sch.review(cmp, 3, t0);
@@ -234,10 +295,21 @@ console.log('\n[irt] test adattivo');
     rng = (rng * 1103515245 + 12345) % 2147483648;
     return rng / 2147483648;
   };
+  /*
+   * Le risposte simulate INDOVINANO, perché è quello che fa un candidato vero
+   * davanti a quattro opzioni: con probabilità c azzecca senza sapere. Fino al
+   * 05/09/2026 questa simulazione usava `p2pl`, cioè un mondo in cui non si
+   * tira mai a indovinare, e in quel mondo il modello 2PL dell'app risultava
+   * perfetto. Il difetto non era invisibile: era la prova a non poterlo vedere.
+   */
+  const rispondeIndovinando = (theta, it) => rand() < Irt.p3pl(theta, it.a, it.b, Irt.guessing(it));
+
   for (const lang of LANGS) {
     const biases = [];
+    const biasIngenuo = [];
     for (const trueTheta of [-2.2, -1.3, -0.4, 0.5, 1.4, 2.2]) {
       const runs = [];
+      const ingenue = [];
       for (let k = 0; k < 30; k++) {
         const asked = [];
         const resp = [];
@@ -246,22 +318,40 @@ console.log('\n[irt] test adattivo');
           const it = Irt.pickNext(lang.placement, asked, est.theta, rand);
           if (!it) break;
           asked.push(it.id);
-          resp.push({ a: it.a, b: it.b, correct: rand() < Irt.p2pl(trueTheta, it.a, it.b) });
+          resp.push({ a: it.a, b: it.b, c: Irt.guessing(it), correct: rispondeIndovinando(trueTheta, it) });
           est = Irt.estimate(resp);
         }
         runs.push(est.theta);
+        // le stesse identiche risposte, lette dal modello che ignora l'indovinamento
+        ingenue.push(Irt.estimate(resp.map((r) => ({ ...r, c: 0 }))).theta);
       }
       const mean = runs.reduce((a, b) => a + b, 0) / runs.length;
+      const meanIngenuo = ingenue.reduce((a, b) => a + b, 0) / ingenue.length;
       biases.push(Math.abs(mean - trueTheta));
-      expect(Math.abs(mean - trueTheta) < 0.6, `[${lang.code}] θ vero ${trueTheta}: stima media ${mean.toFixed(2)}`);
+      biasIngenuo.push(meanIngenuo - trueTheta);
+      /* Tolleranza 0,7 e non 0,6: qui la stima parte da un prior neutro (θ=0),
+       * che è il caso peggiore — nell'app il prior viene dalla domanda di
+       * ingresso — e su un profilo estremo quel prior tira verso il centro di
+       * suo, prima ancora che il modello dica la sua. */
+      expect(Math.abs(mean - trueTheta) < 0.7, `[${lang.code}] θ vero ${trueTheta}: stima media ${mean.toFixed(2)}`);
     }
     ok(`[${lang.code}] abilità recuperata entro ±${Math.max(...biases).toFixed(2)} su 6 profili × 30 simulazioni`);
+
+    // e il modello senza indovinamento sbaglia in alto, sempre nella stessa direzione
+    const bassi = biasIngenuo.slice(0, 3);
+    expect(bassi.every((b) => b > 0.15),
+      `[${lang.code}] ignorare l'indovinamento non sovrastima i principianti: ${bassi.map((b) => b.toFixed(2)).join(', ')}`);
+    expect(Math.max(...bassi) > Math.max(...biases),
+      `[${lang.code}] il modello che ignora l'indovinamento non è peggiore di quello che ne tiene conto`);
+    ok(`[${lang.code}] ignorando l'indovinamento un principiante salirebbe di +${Math.max(...bassi).toFixed(2)} in θ`);
   }
 
   // l'informazione è massima quando la difficoltà coincide con l'abilità
-  const at = Irt.itemInfo(0, 1.5, 0);
-  expect(at > Irt.itemInfo(0, 1.5, 1.5) && at > Irt.itemInfo(0, 1.5, -1.5), 'informazione di Fisher non centrata su b');
-  ok("l'informazione di Fisher è massima dove b coincide con θ");
+  const at = Irt.itemInfo(0, 1.5, 0, 0.25);
+  expect(at > Irt.itemInfo(0, 1.5, 1.5, 0.25) && at > Irt.itemInfo(0, 1.5, -1.5, 0.25), 'informazione di Fisher non centrata su b');
+  expect(Irt.itemInfo(0, 1.5, 0, 0.25) < Irt.itemInfo(0, 1.5, 0, 0),
+    "l'indovinamento non riduce l'informazione dell'item, e dovrebbe");
+  ok("l'informazione di Fisher è massima dove b coincide con θ, e cala quando si può indovinare");
 
   // il prior tiene a bada i pattern estremi
   const allRight = Irt.estimate(Array.from({ length: 10 }, () => ({ a: 1.4, b: 0, correct: true })));
@@ -621,6 +711,43 @@ console.log('\n[optimizer] pesi tarati sui propri ripassi');
   expect(baseline.logLoss - refit.logLoss < 0.05, `guadagno sospetto su dati già di serie: ${baseline.logLoss - refit.logLoss}`);
   ok('su dati che seguono già i pesi di serie il guadagno resta trascurabile');
 
+  /*
+   * Il verdetto sui pesi non si dà sui dati con cui li si è scelti.
+   *
+   * Due prove speculari, e servono tutte e due: una sola direzione si supera
+   * barando (un cancello sempre chiuso passerebbe la prima, uno sempre aperto
+   * la seconda).
+   */
+  {
+    // (a) poco registro, memoria che segue già i pesi di serie: deve dire di no
+    const poco = honest.slice(0, 18);
+    const dentro = Opt.splitByTime(poco);
+    const tarati = Opt.optimize(dentro.train, { start: Fsrs.DEFAULT_W, only: Opt.identifiable(dentro.train) });
+    const inCampione = Opt.score(dentro.train, Fsrs.DEFAULT_W).logLoss - Opt.score(dentro.train, tarati.w).logLoss;
+    const esito = Opt.verdict(dentro.test, tarati.w, Fsrs.DEFAULT_W);
+    expect(inCampione > 0, 'sul proprio campione la taratura non migliora nemmeno: la prova non misura quello che crede');
+    expect(!esito.better,
+      `con ${esito.n} ripassi di verifica il cancello si apre lo stesso (${esito.testLoss.toFixed(4)} contro ${esito.baseLoss.toFixed(4)})`);
+    ok(`sovradattamento riconosciuto: +${inCampione.toFixed(4)} sul proprio campione, ma fuori il verdetto è no`);
+
+    // (b) memoria che segue pesi diversi, registro abbondante: deve dire di sì
+    const vero = Opt.splitByTime(sequences);
+    const suMisura = Opt.optimize(vero.train, { start: Fsrs.DEFAULT_W, only: Opt.identifiable(vero.train, { rich: true }) });
+    const buono = Opt.verdict(vero.test, suMisura.w, Fsrs.DEFAULT_W);
+    expect(buono.enough, `solo ${buono.n} ripassi di verifica da 200 storie: il taglio ne butta troppi`);
+    expect(buono.better,
+      `pesi davvero migliori non passano il cancello: ${buono.testLoss.toFixed(4)} contro ${buono.baseLoss.toFixed(4)} ± ${buono.se.toFixed(4)}`);
+    ok(`pesi veri riconosciuti su ${buono.n} ripassi tenuti da parte: ${buono.testLoss.toFixed(4)} contro ${buono.baseLoss.toFixed(4)} dei pesi di serie`);
+  }
+
+  // i pesi che i dati non possono stimare non si toccano
+  {
+    const senzaFacile = Opt.identifiable(sequences, { rich: true });
+    expect(!senzaFacile.includes(16), 'w16 ("Facile") viene tarato anche senza un solo voto Facile nel registro');
+    expect(Opt.identifiable(sequences).length === 7, 'con pochi ripassi si toccano più di sette pesi');
+    ok(`con pochi ripassi si tarano 7 pesi, e w16 resta fermo finché nessuno vota "Facile"`);
+  }
+
   const bins = Opt.calibration(before.rows);
   expect(bins.every((b) => b.n > 0 && b.predicted >= b.from - 1e-9 && b.predicted <= b.to + 1e-9), 'fasce di calibrazione incoerenti');
   expect(Math.abs(bins.reduce((a, b) => a + b.n, 0) - before.n) < 1, 'la calibrazione perde per strada dei ripassi');
@@ -807,6 +934,46 @@ console.log('\n[scheduler] costruzione della sessione');
       `un gradino successivo arriva a ${Math.min(...distances)} carte dal suo riconoscimento: troppo vicino`);
     ok(`la prima sessione parte da ${start} carte e ne mostra ${kinds.size} tipi (${[...kinds].join(', ')}), `
       + `${opened} gradini aperti, il più vicino a ${Math.min(...distances)} carte di distanza`);
+  }
+
+  /*
+   * Rientro dopo un'assenza: contano le carte a rischio, non le più vecchie.
+   *
+   * Si costruisce l'arretrato che si troverebbe dopo tre settimane fuori: 200
+   * carte scadute, metà stabilissime (scadute da tanto ma ancora ricordabili)
+   * e metà fragili (scadute da poco ma già andate). Il taglio a `maxReviews`
+   * deve prendere le fragili.
+   */
+  {
+    const cards = {};
+    lang.sentences.slice(0, 200).forEach((s, i) => {
+      const id = cardId(s.id, 'comp');
+      const fragile = i % 2 === 0;
+      cards[id] = {
+        ...Fsrs.newCard(id),
+        state: 'review',
+        reps: 4,
+        s: fragile ? 2 : 400,                     // stabilità bassa contro altissima
+        d: 5,
+        ivl: fragile ? 2 : 300,
+        last: Date.now() - (fragile ? 6 : 60) * DAY,
+        due: Date.now() - (fragile ? 4 : 40) * DAY, // le stabili sono scadute da più tempo
+      };
+    });
+    const indietro = { profile: { theta: 0 }, cards, log: [] };
+    const q = buildQueue({
+      lang,
+      deck: indietro,
+      settings: { newPerDay: 8, maxReviews: 40, direction: 'produce', domains: [] },
+      random: () => 0.5,
+    });
+    const presi = q.queue.filter((c) => c.state === 'review');
+    const fragiliPrese = presi.filter((c) => c.s < 10).length;
+    expect(q.counts.arretrato === true, 'con 200 carte scadute e un tetto di 40 non risulta arretrato');
+    expect(q.counts.fresh === 0, `con l'arretrato entrano ancora ${q.counts.fresh} frasi nuove`);
+    expect(fragiliPrese >= presi.length * 0.9,
+      `il taglio prende ${presi.length - fragiliPrese} carte solide su ${presi.length} invece delle fragili`);
+    ok(`rientro da 200 scadute: ${fragiliPrese}/${presi.length} carte prese sono quelle a rischio, zero frasi nuove`);
   }
 
   // i ripassi in scadenza precedono le novità e restano mescolati

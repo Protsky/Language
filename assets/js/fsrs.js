@@ -114,18 +114,38 @@ function stabilityAfterRecall(w, s, d, r, grade) {
   return clamp(s * Math.max(1, inc), S_MIN, S_MAX);
 }
 
+/**
+ * Dopo un errore.
+ *
+ * Il tetto non è `s`, è `s / e^(w17·w18)`: con i pesi di serie vuol dire che
+ * dimenticare una carta le toglie almeno il 29% di stabilità. Con `min(sf, s)`
+ * — come era scritto qui fino al 05/09/2026 — una carta molto stabile poteva
+ * uscire da un "Di nuovo" con la stabilità intatta, perché la formula lunga
+ * restituisce più di `s` proprio dove `s` è grande: l'errore non costava
+ * niente e l'intervallo successivo ripartiva da dov'era. Il tetto corto è
+ * quello di FSRS-6 (`_next_forget_stability`), e non chiede pesi nuovi.
+ */
 function stabilityAfterLapse(w, s, d, r) {
   const sf = w[11]
     * Math.pow(d, -w[12])
     * (Math.pow(s + 1, w[13]) - 1)
     * Math.exp(w[14] * (1 - r));
-  // dopo un errore la stabilità non può crescere
-  return clamp(Math.min(sf, s), S_MIN, S_MAX);
+  return clamp(Math.min(sf, s / Math.exp(w[17] * w[18])), S_MIN, S_MAX);
 }
 
-/** Ripasso nello stesso giorno: effetto piccolo, formula dedicata di FSRS-5. */
+/**
+ * Ripasso nello stesso giorno: effetto piccolo, formula dedicata di FSRS-5.
+ *
+ * Il pavimento a 1 vale solo per "Bene" e "Facile" (è la regola di FSRS-6):
+ * richiamare una carta non può ridurne la stabilità, qualunque cosa dicano i
+ * pesi. Con quelli di serie il fattore è già 1,41 e 2,36, quindi non morde
+ * mai; morde su una taratura personale che spingesse w17 o w18 verso lo zero.
+ * "Difficile" resta sotto 1 (0,84) ed è voluto, in FSRS-6 come qui: una carta
+ * che a dieci minuti fatica non è più solida di prima.
+ */
 function stabilityShortTerm(w, s, grade) {
-  return clamp(s * Math.exp(w[17] * (grade - 3 + w[18])), S_MIN, S_MAX);
+  const inc = Math.exp(w[17] * (grade - 3 + w[18]));
+  return clamp(s * (grade >= GOOD ? Math.max(inc, 1) : inc), S_MIN, S_MAX);
 }
 
 /**
@@ -158,11 +178,59 @@ export const BOUNDS = [
   [1, 6], [0, 2], [0, 2],
 ];
 
-/** Rumore ±5% sugli intervalli lunghi, per non far arrivare tutto lo stesso giorno. */
-function fuzz(days, rnd) {
-  if (days < 3) return days;
-  const spread = Math.min(days * 0.05, 4);
-  return days + (rnd() * 2 - 1) * spread;
+/*
+ * Rumore sugli intervalli, per non far arrivare tutto lo stesso giorno.
+ *
+ * Il ±5% di prima non spostava niente, ed è aritmetica: a cinque giorni la
+ * finestra era ±0,25 giorni, e l'arrotondamento che viene dopo la richiudeva
+ * su un solo giorno. Lo stesso a 3 e a 7. Il rumore c'era nel codice e non
+ * nel calendario, e le carte introdotte insieme continuavano a tornare
+ * insieme per sempre.
+ *
+ * Le fasce sono quelle di FSRS (py-fsrs `FUZZ_RANGES`), e la parte che conta
+ * è la BASE 1: garantisce almeno un giorno di gioco da subito, prima ancora
+ * che le percentuali diventino visibili. A cinque giorni si passa da un
+ * giorno raggiungibile a tre, a venti da tre a sette.
+ */
+const FUZZ_BANDS = [[2.5, 7, 0.15], [7, 20, 0.1], [20, Infinity, 0.05]];
+
+/** Estremi (interi, inclusi) fra cui può cadere un intervallo di `days` giorni. */
+export function fuzzRange(days) {
+  if (days < 2.5) return [Math.round(days), Math.round(days)];
+  let delta = 1;
+  for (const [from, to, factor] of FUZZ_BANDS) {
+    delta += factor * Math.max(0, Math.min(days, to) - from);
+  }
+  const lo = Math.max(2, Math.round(days - delta));
+  return [lo, Math.max(lo, Math.round(days + delta))];
+}
+
+/**
+ * Dentro la finestra, il giorno meno carico.
+ *
+ * Il rumore serve a spargere le carte; sceglierlo a caso lo fa alla cieca,
+ * mentre il calendario delle scadenze è già noto. È il load balancer che Anki
+ * ha di serie: a parità di carico vince il giorno più vicino all'intervallo
+ * che il modello aveva chiesto, così la scelta non si allontana mai dalla
+ * ritenzione voluta più di quanto il fuzz già permettesse.
+ *
+ * `dueByDay(n)` = quante carte scadono già fra `n` giorni. Senza, si torna al
+ * sorteggio: l'ottimizzatore e le prove non hanno un calendario da guardare.
+ */
+function pickDay(days, rnd, dueByDay) {
+  const [lo, hi] = fuzzRange(days);
+  if (hi <= lo) return lo;
+  if (!dueByDay) return lo + Math.floor(rnd() * (hi - lo + 1));
+  let best = lo;
+  let bestLoad = Infinity;
+  for (let d = lo; d <= hi; d++) {
+    const load = dueByDay(d);
+    if (load < bestLoad || (load === bestLoad && Math.abs(d - days) < Math.abs(best - days))) {
+      best = d;
+      bestLoad = load;
+    }
+  }
+  return best;
 }
 
 export function createScheduler(options = {}) {
@@ -173,6 +241,8 @@ export function createScheduler(options = {}) {
   const learningSteps = options.learningSteps ?? [1, 10];
   const relearningSteps = options.relearningSteps ?? [10];
   const rnd = options.random ?? Math.random;
+  /* Il calendario delle scadenze, se chi ci chiama ce l'ha. */
+  const dueByDay = typeof options.dueByDay === 'function' ? options.dueByDay : null;
 
   /** Stato della memoria dopo aver risposto `grade`, senza toccare le scadenze. */
   function nextMemory(card, grade, now) {
@@ -183,7 +253,7 @@ export function createScheduler(options = {}) {
   /** Intervallo in giorni (arrotondato) suggerito da una stabilità. */
   function daysFor(s) {
     const raw = intervalFor(s, requestRetention);
-    return clamp(Math.round(fuzz(raw, rnd)), 1, maximumInterval);
+    return clamp(pickDay(raw, rnd, dueByDay), 1, maximumInterval);
   }
 
   /**
